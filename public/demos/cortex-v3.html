@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>EVE • Network Consciousness (Polished)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { 
+      color-scheme: dark; 
+      --bg-primary: #0a0b10;
+      --bg-secondary: #0c0f14;
+      --border-color: rgba(255,255,255,0.12);
+      --text-primary: #f8fafc;
+      --text-secondary: #e2e8f0;
+      --accent-color: #4fc3f7;
+      --danger-color: #ef4444;
+      --warning-color: #f59e0b;
+    }
+    html, body { 
+      margin:0; height:100%; 
+      background: radial-gradient(80% 80% at 50% 50%, var(--bg-secondary) 0%, var(--bg-primary) 60%, #07080c 100%); 
+      font: 13px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial; 
+      overflow: hidden;
+    }
+    #app { position: fixed; inset: 0; }
+    #hud {
+      position: fixed; left: 12px; top: 12px; right: 12px; 
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+      color:var(--text-secondary);
+      z-index: 100;
+    }
+    .chip { 
+      background: rgba(255,255,255,.06); 
+      border: 1px solid var(--border-color); 
+      border-radius: 10px; 
+      padding: 6px 10px; 
+      backdrop-filter: blur(4px);
+      transition: all 0.2s ease;
+    }
+    .chip:hover {
+      background: rgba(255,255,255,.1);
+      transform: translateY(-1px);
+    }
+    .btn { cursor: pointer; user-select: none; }
+    .btn:hover { background: rgba(255,255,255,.1); }
+    #legend { margin-right: auto; opacity: .85; font-weight: 500; }
+    #legend b { color: var(--accent-color); }
+    #tooltip {
+      position: fixed; 
+      padding: 10px 12px; 
+      border-radius: 12px; 
+      pointer-events: none;
+      background: rgba(13,16,21,.95); 
+      border: 1px solid var(--border-color);
+      transform: translate(-50%, calc(-100% - 14px)); 
+      color: var(--text-primary); 
+      display: none; 
+      white-space: nowrap;
+      z-index: 1000;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    #tooltip::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 100%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: rgba(13,16,21,.95);
+    }
+    #coh { font-variant-numeric: tabular-nums; min-width: 120px; }
+    #viewToggle { 
+      border-color: var(--accent-color);
+      color: var(--accent-color);
+    }
+    #pinModule {
+      position: relative;
+    }
+    #moduleList {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: rgba(13,16,21,.98);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      margin-top: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+      display: none;
+      z-index: 1001;
+    }
+    #moduleList button {
+      display: block;
+      width: 100%;
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      padding: 8px 12px;
+      text-align: left;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    #moduleList button:hover {
+      background: rgba(255,255,255,0.1);
+      color: var(--text-primary);
+    }
+    #coherenceSlider {
+      width: 80px;
+      vertical-align: middle;
+    }
+    .pulse-warning {
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+    .alert-rim {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border: 2px solid var(--danger-color);
+      border-radius: 50%;
+      pointer-events: none;
+      animation: rim-pulse 1.5s infinite ease-in-out;
+    }
+    @keyframes rim-pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.1); opacity: 0.7; }
+    }
+  </style>
+
+  <!-- ES Modules via import map -->
+  <script type="importmap">
+    {
+      "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.181.2/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.181.2/examples/jsm/"
+        }
+    }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="hud">
+    <div id="legend" class="chip">EVE • Network Consciousness — <b>size</b>=load · <b>color</b>=health · <b>pulses</b>=flow</div>
+    <div class="chip">Drag: orbit</div>
+    <div class="chip">Wheel: zoom</div>
+    <div class="chip">Click: inspect</div>
+    <div id="coh" class="chip">Coherence: 0.00</div>
+    
+    <div id="viewToggle" class="chip btn">Context View: OFF</div>
+    
+    <div id="pinModule" class="chip btn">
+      <span id="currentModule">Pin: None</span>
+      <div id="moduleList"></div>
+    </div>
+    
+    <div class="chip">
+      Coherence:
+      <input type="range" id="coherenceSlider" min="0" max="2" step="0.1" value="1">
+      <span id="coherenceValue">1.0</span>
+    </div>
+    
+    <div id="jitter" class="chip btn">Jitter: ON</div>
+  </div>
+  <div id="tooltip"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+    // ---------- utilities ----------
+    const clamp = (min, max, v) => Math.max(min, Math.min(max, v));
+    const lerp  = (a, b, t) => a + (b - a) * t;
+    const tmpObj = new THREE.Object3D();
+    const tmpColor = new THREE.Color();
+    const rand = (a=0, b=1)=> a + Math.random()*(b-a);
+
+    function healthColor(errorRate = 0, similarity = 0.5) {
+      // Error rate: 0 (good) → 1 (bad)
+      const r = clamp(0, 1, lerp(0.05, 1.0, errorRate));
+      const g = clamp(0, 1, lerp(0.8, 0.2, errorRate));
+      const b = clamp(0, 1, lerp(0.3, 0.1, errorRate) + similarity * 0.2);
+      return new THREE.Color(r, g, b);
+    }
+
+    function nodeRadius(metrics) {
+      const load = (metrics.latencyMs ?? 100) + (metrics.queueDepth ?? 0) * 150;
+      return clamp(0.12, 0.8, Math.sqrt(load) / 60);
+    }
+
+    // ---------- scene setup ----------
+    const container = document.getElementById('app');
+    const tooltip = document.getElementById('tooltip');
+    const cohLabel = document.getElementById('coh');
+    const jitterBtn = document.getElementById('jitter');
+    const viewToggleBtn = document.getElementById('viewToggle');
+    const pinModuleBtn = document.getElementById('pinModule');
+    const currentModuleSpan = document.getElementById('currentModule');
+    const moduleList = document.getElementById('moduleList');
+    const coherenceSlider = document.getElementById('coherenceSlider');
+    const coherenceValue = document.getElementById('coherenceValue');
+
+    // WebGL Renderer with high-performance settings
+    const renderer = new THREE.WebGLRenderer({ 
+      antialias: true, 
+      powerPreference: 'high-performance',
+      alpha: true,
+      stencil: false,
+      depth: true
+    });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+    container.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0b10);
+    scene.fog = new THREE.Fog(0x0a0b10, 12, 25);
+
+    const camera = new THREE.PerspectiveCamera(52, innerWidth/innerHeight, 0.1, 100);
+    camera.position.set(-2.2, 2.0, 5.8);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.minDistance = 2;
+    controls.maxDistance = 30;
+    controls.rotateSpeed = 0.8;
+
+    // Post-processing for bloom effects
+    const composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(innerWidth, innerHeight),
+      0.8, // strength
+      0.4, // radius
+      0.85 // threshold
+    );
+    composer.addPass(bloomPass);
+
+    const outputPass = new OutputPass();
+    composer.addPass(outputPass);
+
+    // Subtle ambient particles for depth
+    const starGeometry = new THREE.BufferGeometry();
+    const starCount = 1000;
+    const starPositions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount * 3; i += 3) {
+      starPositions[i] = (Math.random() - 0.5) * 100;
+      starPositions[i + 1] = (Math.random() - 0.5) * 100;
+      starPositions[i + 2] = (Math.random() - 0.5) * 100;
+    }
+    starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    const starMaterial = new THREE.PointsMaterial({ 
+      color: 0xffffff, 
+      size: 0.5, 
+      transparent: true, 
+      opacity: 0.1,
+      sizeAttenuation: true 
+    });
+    const stars = new THREE.Points(starGeometry, starMaterial);
+    scene.add(stars);
+
+    // ---------- network model ----------
+    const NODE_COUNT = 16;
+    const nodes = [];
+    const names = [
+      "Planner", "Retriever", "RAG", "Tools", "Guard", 
+      "Memory", "Embeddings", "Classifier", "Router", "TTS", 
+      "ASR", "Summarizer", "Planner-2", "KVCache", 
+      "ContextHub", "Workflow"
+    ];
+
+    // Enhanced network layout with more interesting topology
+    function createNetworkTopology() {
+      const nodes = [];
+      
+      // Main ring (outer layer)
+      for (let i = 0; i < 10; i++) {
+        const t = (i / 10) * Math.PI * 2;
+        const radius = 4.0;
+        nodes.push({
+          id: names[i],
+          pos: new THREE.Vector3(
+            Math.cos(t) * radius + Math.sin(t * 3) * 0.5,
+            Math.sin(t * 2) * 0.8,
+            Math.sin(t) * radius * 0.6
+          ),
+          layer: 'outer',
+          metrics: { 
+            latencyMs: rand(60, 800), 
+            queueDepth: Math.round(rand(0, 6)), 
+            errorRate: rand(0, 0.25), 
+            similarity: rand(0.4, 0.9), 
+            freshnessSec: rand(0, 7) 
+          },
+          target: { latencyMs: 100, queueDepth: 0, errorRate: 0.05, similarity: 0.7, freshnessSec: 0 },
+          phase: Math.random() * Math.PI * 2,
+          connections: []
+        });
+      }
+
+      // Inner core nodes
+      for (let i = 10; i < NODE_COUNT; i++) {
+        const angle = ((i - 10) / 6) * Math.PI * 2;
+        const radius = 1.5;
+        nodes.push({
+          id: names[i] || `Core-${i}`,
+          pos: new THREE.Vector3(
+            Math.cos(angle) * radius + rand(-0.3, 0.3),
+            Math.sin(angle * 2) * 0.3,
+            Math.sin(angle) * radius + rand(-0.3, 0.3)
+          ),
+          layer: 'inner',
+          metrics: { 
+            latencyMs: rand(40, 400), 
+            queueDepth: Math.round(rand(0, 3)), 
+            errorRate: rand(0, 0.15), 
+            similarity: rand(0.6, 0.95), 
+            freshnessSec: rand(0, 5) 
+          },
+          target: { latencyMs: 50, queueDepth: 0, errorRate: 0.02, similarity: 0.8, freshnessSec: 0 },
+          phase: Math.random() * Math.PI * 2,
+          connections: []
+        });
+      }
+
+      return nodes;
+    }
+
+    // Create connections with more realistic topology
+    function createConnections(nodes) {
+      const connections = [];
+      
+      // Ring connections for outer layer
+      for (let i = 0; i < 10; i++) {
+        addConnection(connections, nodes, i, (i + 1) % 10);
+      }
+      
+      // Core ring connections
+      for (let i = 10; i < 16; i++) {
+        addConnection(connections, nodes, i, i === 15 ? 10 : i + 1);
+      }
+      
+      // Cross connections between layers
+      for (let i = 0; i < 10; i += 2) {
+        const coreIndex = 10 + Math.floor(rand(0, 6));
+        addConnection(connections, nodes, i, coreIndex);
+      }
+      
+      // Random additional connections for redundancy
+      for (let k = 0; k < 8; k++) {
+        const a = Math.floor(rand(0, NODE_COUNT));
+        let b = Math.floor(rand(0, NODE_COUNT));
+        if (a === b) b = (b + 1) % NODE_COUNT;
+        addConnection(connections, nodes, a, b);
+      }
+      
+      return connections;
+    }
+
+    function addConnection(connections, nodes, a, b) {
+      if (a === b) return;
+      
+      // Check if connection already exists
+      if (connections.some(c => (c.a === a && c.b === b) || (c.a === b && c.b === a))) return;
+      
+      const pa = nodes[a].pos, pb = nodes[b].pos;
+      const mid = pa.clone().add(pb).multiplyScalar(0.5);
+      const dir = pb.clone().sub(pa).normalize();
+      const up = new THREE.Vector3(0, 1, 0);
+      const bend = up.clone().addScaledVector(dir, rand(-0.8, 0.8)).multiplyScalar(rand(0.4, 1.4));
+      const control = mid.clone().add(bend);
+      const curve = new THREE.QuadraticBezierCurve3(pa, control, pb);
+      
+      connections.push({ 
+        a, b, curve, 
+        opacity: 0.4, 
+        pulses: [],
+        weight: rand(0.3, 1.0)
+      });
+      
+      // Update node connection lists
+      nodes[a].connections.push(connections.length - 1);
+      nodes[b].connections.push(connections.length - 1);
+    }
+
+    // Initialize network
+    const networkNodes = createNetworkTopology();
+    const networkConnections = createConnections(networkNodes);
+
+    // ---------- instanced meshes ----------
+    // Main node spheres with enhanced material
+    const nodeGeom = new THREE.SphereGeometry(1, 32, 16);
+    const nodeMat = new THREE.MeshPhongMaterial({ 
+      vertexColors: true, 
+      transparent: true, 
+      opacity: 0.9,
+      shininess: 100,
+      specular: new THREE.Color(0x111111)
+    });
+    const nodeMesh = new THREE.InstancedMesh(nodeGeom, nodeMat, networkNodes.length);
+    nodeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(nodeMesh);
+
+    // Alert rim instances
+    const rimGeom = new THREE.RingGeometry(1.1, 1.3, 32);
+    const rimMat = new THREE.MeshBasicMaterial({ 
+      color: 0xff4444, 
+      transparent: true, 
+      opacity: 0.8,
+      side: THREE.DoubleSide
+    });
+    const rimMesh = new THREE.InstancedMesh(rimGeom, rimMat, networkNodes.length);
+    rimMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(rimMesh);
+
+    // Enhanced glow sprites
+    const glowGroup = new THREE.Group(); 
+    scene.add(glowGroup);
+    
+    const spriteTex = (() => {
+      const size = 128;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      const gradient = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+      gradient.addColorStop(0, 'rgba(255,255,255,0.9)');
+      gradient.addColorStop(0.3, 'rgba(255,255,255,0.6)');
+      gradient.addColorStop(0.7, 'rgba(255,255,255,0.2)');
+      gradient.addColorStop(1, 'rgba(255,255,255,0.0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, size, size);
+      
+      const texture = new THREE.Texture(canvas);
+      texture.needsUpdate = true;
+      return texture;
+    })();
+
+    networkNodes.forEach(node => {
+      const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({ 
+        map: spriteTex, 
+        color: 0xffffff, 
+        transparent: true, 
+        opacity: 0.6, 
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      }));
+      glowSprite.position.copy(node.pos);
+      glowSprite.scale.set(1.2, 1.2, 1.2);
+      glowGroup.add(glowSprite);
+    });
+
+    // ---------- connection lines ----------
+    const edgeGroup = new THREE.Group(); 
+    scene.add(edgeGroup);
+    
+    networkConnections.forEach(conn => {
+      const pts = conn.curve.getPoints(50);
+      const geom = new THREE.BufferGeometry().setFromPoints(pts);
+      const mat = new THREE.LineBasicMaterial({ 
+        color: 0xffffff, 
+        transparent: true, 
+        opacity: conn.opacity,
+        linewidth: 2
+      });
+      const line = new THREE.Line(geom, mat);
+      edgeGroup.add(line);
+      conn.line = line;
+    });
+
+    // ---------- enhanced pulses ----------
+    const PULSES_PER_EDGE = 3;
+    const totalPulses = networkConnections.length * PULSES_PER_EDGE;
+    const pulseGeom = new THREE.SphereGeometry(0.08, 16, 8);
+    const pulseMat = new THREE.MeshBasicMaterial({ 
+      color: 0xffffff, 
+      transparent: true, 
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending
+    });
+    const pulseMesh = new THREE.InstancedMesh(pulseGeom, pulseMat, totalPulses);
+    pulseMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(pulseMesh);
+
+    // Initialize pulses
+    let pulseIndex = 0;
+    networkConnections.forEach((conn, connIndex) => {
+      for (let k = 0; k < PULSES_PER_EDGE; k++) {
+        const speed = rand(0.15, 0.45);
+        const u = Math.random();
+        conn.pulses.push({ 
+          instanceId: pulseIndex++, 
+          u, 
+          speed, 
+          connIndex,
+          phase: Math.random() * Math.PI * 2
+        });
+      }
+    });
+
+    // ---------- interaction ----------
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let hovered = -1;
+    
+    window.addEventListener('pointermove', (e) => {
+      mouse.x = (e.clientX / innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+    }, { passive: true });
+
+    window.addEventListener('click', () => {
+      if (hovered >= 0) {
+        const node = networkNodes[hovered];
+        console.log(`[EVE] Node inspection:`, {
+          id: node.id,
+          metrics: node.metrics,
+          connections: node.connections.length,
+          layer: node.layer
+        });
+        
+        // Show detailed tooltip
+        showDetailedTooltip(node);
+      }
+    });
+
+    function showDetailedTooltip(node) {
+      const m = node.metrics;
+      tooltip.innerHTML = `
+        <strong style="color: var(--accent-color)">${node.id}</strong>
+        <div style="margin-top: 6px; font-size: 12px;">
+          <div style="margin: 2px 0;">🌐 Layer: ${node.layer}</div>
+          <div style="margin: 2px 0;">⚡ Latency: ${m.latencyMs?.toFixed(0)}ms</div>
+          <div style="margin: 2px 0;">📊 Queue: ${m.queueDepth ?? 0}</div>
+          <div style="margin: 2px 0;">❌ Error: ${(m.errorRate ?? 0).toFixed(3)}</div>
+          <div style="margin: 2px 0;">🔗 Similarity: ${(m.similarity ?? 0.5).toFixed(2)}</div>
+          <div style="margin: 2px 0;">🔗 Connections: ${node.connections.length}</div>
+        </div>
+      `;
+    }
+
+    // ---------- UI controls ----------
+    let contextViewEnabled = false;
+    let pinnedModule = null;
+    let jitterEnabled = true;
+    let coherenceWeight = 1.0;
+
+    viewToggleBtn.addEventListener('click', () => {
+      contextViewEnabled = !contextViewEnabled;
+      viewToggleBtn.textContent = `Context View: ${contextViewEnabled ? 'ON' : 'OFF'}`;
+      viewToggleBtn.style.background = contextViewEnabled ? 'var(--accent-color)' : '';
+      viewToggleBtn.style.color = contextViewEnabled ? 'var(--bg-primary)' : '';
+    });
+
+    // Module pin dropdown
+    function populateModuleList() {
+      moduleList.innerHTML = '';
+      networkNodes.forEach((node, index) => {
+        const btn = document.createElement('button');
+        btn.textContent = node.id;
+        btn.addEventListener('click', () => {
+          pinModule(node.id);
+          moduleList.style.display = 'none';
+        });
+        moduleList.appendChild(btn);
+      });
+    }
+
+    pinModuleBtn.addEventListener('click', () => {
+      moduleList.style.display = moduleList.style.display === 'block' ? 'none' : 'block';
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!pinModuleBtn.contains(e.target)) {
+        moduleList.style.display = 'none';
+      }
+    });
+
+    function pinModule(moduleId) {
+      pinnedModule = moduleId;
+      currentModuleSpan.textContent = `Pin: ${moduleId}`;
+      
+      if (contextViewEnabled) {
+        focusOnModule(moduleId);
+      }
+    }
+
+    coherenceSlider.addEventListener('input', (e) => {
+      coherenceWeight = parseFloat(e.target.value);
+      coherenceValue.textContent = coherenceWeight.toFixed(1);
+    });
+
+    jitterBtn.addEventListener('click', () => {
+      jitterEnabled = !jitterEnabled;
+      jitterBtn.textContent = `Jitter: ${jitterEnabled ? 'ON' : 'OFF'}`;
+    });
+
+    // ---------- camera focus management ----------
+    let targetCameraPos = camera.position.clone();
+    let targetLookAt = new THREE.Vector3(0, 0, 0);
+
+    function focusOnModule(moduleId) {
+      const node = networkNodes.find(n => n.id === moduleId);
+      if (!node) return;
+
+      // Find neighboring nodes for focus region
+      const neighbors = [node];
+      node.connections.forEach(connIndex => {
+        const conn = networkConnections[connIndex];
+        const otherNode = conn.a === networkNodes.indexOf(node) ? 
+          networkNodes[conn.b] : networkNodes[conn.a];
+        if (otherNode) neighbors.push(otherNode);
+      });
+
+      // Calculate center and bounds of focus region
+      const center = new THREE.Vector3();
+      neighbors.forEach(n => center.add(n.pos));
+      center.multiplyScalar(1 / neighbors.length);
+
+      // Set camera target
+      targetLookAt.copy(center);
+      
+      // Position camera at a good viewing angle
+      const distance = 3.0;
+      targetCameraPos.set(
+        center.x + distance,
+        center.y + distance * 0.5,
+        center.z + distance
+      );
+    }
+
+    // ---------- context integration API ----------
+    // This function can be called from external scripts to set context
+    window.setEveContext = function(contextModule) {
+      if (!contextModule) return;
+      
+      pinModule(contextModule);
+      if (!contextViewEnabled) {
+        viewToggleBtn.click(); // Auto-enable context view
+      }
+    };
+
+    // ---------- live data simulation ----------
+    function startMockFeed(onTick) {
+      return setInterval(() => {
+        const next = networkNodes.map(node => {
+          const m = { ...node.metrics };
+          if (jitterEnabled) {
+            m.latencyMs = Math.max(20, (m.latencyMs ?? 100) + (Math.random() * 100 - 50));
+            m.queueDepth = Math.max(0, Math.round((m.queueDepth ?? 0) + (Math.random() * 4 - 2)));
+            m.errorRate = clamp(0, 0.6, (m.errorRate ?? 0) + (Math.random() * 0.05 - 0.025));
+            m.similarity = clamp(0, 1, (m.similarity ?? 0.5) + (Math.random() * 0.08 - 0.04));
+          }
+          m.freshnessSec = 0;
+          return { id: node.id, ...m };
+        });
+        onTick(next);
+      }, 1000);
+    }
+
+    function applyIncoming(metricsArray) {
+      const byId = new Map(metricsArray.map(o => [o.id, o]));
+      networkNodes.forEach(node => {
+        const update = byId.get(node.id);
+        if (!update) return;
+        node.target = { ...node.target, ...update, freshnessSec: 0 };
+      });
+    }
+
+    const feedTimer = startMockFeed(applyIncoming);
+
+    // ---------- coherence computation ----------
+    function computeCoherence() {
+      const activeNodes = contextViewEnabled && pinnedModule ? 
+        getNodesInScope(pinnedModule) : 
+        networkNodes;
+      
+      const errors = activeNodes.map(n => n.metrics.errorRate ?? 0);
+      const similarities = activeNodes.map(n => n.metrics.similarity ?? 0.5);
+      
+      const meanError = errors.reduce((a, b) => a + b, 0) / errors.length;
+      const meanSim = similarities.reduce((a, b) => a + b, 0) / similarities.length;
+      
+      const errorVariance = errors.reduce((sum, err) => sum + Math.pow(err - meanError, 2), 0) / errors.length;
+      const coherence = clamp(0, 1, meanSim * (1 - Math.sqrt(errorVariance) / 0.3));
+      
+      return coherence * coherenceWeight;
+    }
+
+    function getNodesInScope(focusedModule) {
+      const focusedNode = networkNodes.find(n => n.id === focusedModule);
+      if (!focusedNode) return networkNodes;
+      
+      const scope = [focusedNode];
+      
+      // Add immediate neighbors
+      focusedNode.connections.forEach(connIndex => {
+        const conn = networkConnections[connIndex];
+        const neighborIndex = conn.a === networkNodes.indexOf(focusedNode) ? conn.b : conn.a;
+        scope.push(networkNodes[neighborIndex]);
+      });
+      
+      return scope;
+    }
+
+    // ---------- animation loop ----------
+    const clock = new THREE.Clock();
+    
+    function renderFrame() {
+      requestAnimationFrame(renderFrame);
+      const dt = Math.min(clock.getDelta(), 0.05);
+      const t = performance.now() * 0.001;
+
+      // Smooth camera movement
+      camera.position.lerp(targetCameraPos, 0.08);
+      controls.target.lerp(targetLookAt, 0.08);
+
+      // Update node metrics
+      networkNodes.forEach(node => {
+        const current = node.metrics;
+        const target = node.target;
+        
+        node.metrics = {
+          latencyMs: lerp(current.latencyMs ?? 0, target.latencyMs ?? 0, 0.15),
+          queueDepth: lerp(current.queueDepth ?? 0, target.queueDepth ?? 0, 0.15),
+          errorRate: lerp(current.errorRate ?? 0, target.errorRate ?? 0, 0.15),
+          similarity: lerp(current.similarity ?? 0.5, target.similarity ?? 0.5, 0.15),
+          freshnessSec: (current.freshnessSec ?? 0) + dt
+        };
+      });
+
+      // Update coherence and visual effects
+      const coherence = computeCoherence();
+      cohLabel.textContent = `Coherence: ${coherence.toFixed(2)}`;
+      
+      // Animate bloom based on coherence
+      bloomPass.strength = 0.5 + coherence * 0.8;
+
+      // Update node instances
+      networkNodes.forEach((node, i) => {
+        const m = node.metrics;
+        const baseRadius = nodeRadius(m);
+        const healthFactor = clamp(0.3, 1.0, 1 - (m.errorRate ?? 0) * 2);
+        const pulse = 1 + Math.sin(t * 2 + node.phase) * 0.05 * (1 + coherence * 0.3);
+        const radius = baseRadius * pulse * healthFactor;
+
+        // Update main node
+        tmpObj.position.copy(node.pos);
+        tmpObj.scale.setScalar(radius);
+        tmpObj.updateMatrix();
+        nodeMesh.setMatrixAt(i, tmpObj.matrix);
+
+        // Update color based on health
+        const color = healthColor(m.errorRate ?? 0, m.similarity ?? 0.5);
+        nodeMesh.setColorAt(i, color);
+
+        // Update glow
+        const glowSprite = glowGroup.children[i];
+        glowSprite.position.copy(node.pos);
+        glowSprite.material.opacity = 0.4 + coherence * 0.4;
+        glowSprite.scale.setScalar(0.8 + radius * 2);
+
+        // Update alert rim
+        const shouldAlert = (m.errorRate ?? 0) > 0.2 || (m.latencyMs ?? 0) > 1000;
+        rimMesh.setMatrixAt(i, shouldAlert ? tmpObj.matrix : new THREE.Matrix4());
+      });
+      
+      nodeMesh.instanceMatrix.needsUpdate = true;
+      if (nodeMesh.instanceColor) nodeMesh.instanceColor.needsUpdate = true;
+      rimMesh.instanceMatrix.needsUpdate = true;
+
+      // Update connection opacities
+      networkConnections.forEach(conn => {
+        const freshnessA = networkNodes[conn.a].metrics.freshnessSec ?? 0;
+        const freshnessB = networkNodes[conn.b].metrics.freshnessSec ?? 0;
+        const freshness = Math.max(freshnessA, freshnessB);
+        
+        // If in context view, highlight connections involving focused node
+        let targetOpacity = clamp(0.1, 0.8, 1 - freshness / 15);
+        
+        if (contextViewEnabled && pinnedModule) {
+          const focusedIndex = networkNodes.findIndex(n => n.id === pinnedModule);
+          if (conn.a === focusedIndex || conn.b === focusedIndex) {
+            targetOpacity = 0.9;
+          } else {
+            targetOpacity = 0.1; // Dim non-focused connections
+          }
+        }
+        
+        conn.line.material.opacity = lerp(conn.line.material.opacity, targetOpacity, 0.1);
+      });
+
+      // Update pulses
+      let instanceCursor = 0;
+      networkConnections.forEach((conn, connIndex) => {
+        const nodeA = networkNodes[conn.a];
+        const nodeB = networkNodes[conn.b];
+        const qa = nodeA.metrics.queueDepth ?? 0;
+        const qb = nodeB.metrics.queueDepth ?? 0;
+        
+        const flowFactor = 1 + (qa + qb) * 0.08 + coherence * 0.4;
+        
+        conn.pulses.forEach(pulse => {
+          pulse.u = (pulse.u + dt * pulse.speed * flowFactor) % 1;
+          const point = conn.curve.getPointAt(pulse.u);
+          
+          tmpObj.position.copy(point);
+          const scale = 0.08 * (1 + Math.sin(pulse.phase + t * 6) * 0.3);
+          tmpObj.scale.setScalar(scale);
+          tmpObj.updateMatrix();
+          pulseMesh.setMatrixAt(instanceCursor++, tmpObj.matrix);
+        });
+      });
+      
+      pulseMesh.count = instanceCursor;
+      pulseMesh.instanceMatrix.needsUpdate = true;
+
+      // Handle hover detection
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObject(nodeMesh, false);
+      const newHovered = hits.length > 0 ? hits[0].instanceId : -1;
+      
+      if (newHovered !== hovered) {
+        hovered = newHovered;
+        document.body.style.cursor = hovered >= 0 ? 'pointer' : 'default';
+      }
+      
+      // Update tooltip
+      if (hovered >= 0) {
+        const node = networkNodes[hovered];
+        const m = node.metrics;
+        
+        tooltip.style.display = 'block';
+        tooltip.style.left = `${(mouse.x * 0.5 + 0.5) * innerWidth}px`;
+        tooltip.style.top = `${(-mouse.y * 0.5 + 0.5) * innerHeight}px`;
+        
+        if (tooltip.dataset.nodeId !== node.id) {
+          showDetailedTooltip(node);
+          tooltip.dataset.nodeId = node.id;
+        }
+      } else {
+        tooltip.style.display = 'none';
+        delete tooltip.dataset.nodeId;
+      }
+
+      // Update controls
+      controls.update();
+      
+      // Render with post-processing
+      composer.render();
+    }
+
+    // Initialize module list
+    populateModuleList();
+    
+    // Start animation
+    renderFrame();
+
+    // ---------- resize handling ----------
+    addEventListener('resize', () => {
+      const width = innerWidth;
+      const height = innerHeight;
+      
+      renderer.setSize(width, height);
+      composer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      
+      bloomPass.setSize(width, height);
+    });
+
+    // ---------- public API ----------
+    // Example usage from external scripts:
+    // window.setEveContext('MrAnderson');
+    
+    window.EveNetwork = {
+      setContext: (moduleId) => window.setEveContext(moduleId),
+      getNodes: () => networkNodes.map(n => ({ id: n.id, metrics: n.metrics })),
+      getCoherence: () => computeCoherence(),
+      toggleContextView: () => viewToggleBtn.click()
+    };
+
+    // Auto-focus on first module after a delay
+    setTimeout(() => {
+      if (!pinnedModule) {
+        pinModule(networkNodes[0].id);
+      }
+    }, 2000);
+
+  </script>
+</body>
+</html>

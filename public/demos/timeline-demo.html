@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVE-OS Timeline & Cortex Network Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            background: radial-gradient(80% 80% at 50% 50%, #0c0f14 0%, #0a0b10 60%, #07080c 100%);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow: hidden;
+        }
+        .network-container {
+            position: relative;
+            width: 100%;
+            height: 500px;
+            background: linear-gradient(45deg, rgba(0,0,0,0.8), rgba(0,20,40,0.8));
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .node {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 10;
+        }
+        .node.cloud { background: #a855f7; box-shadow: 0 0 10px #a855f7; }
+        .node.local { background: #06b6d4; box-shadow: 0 0 10px #06b6d4; }
+        .node.system { background: #3b82f6; box-shadow: 0 0 10px #3b82f6; }
+        .node:hover { transform: scale(1.5); }
+        .node.active { animation: pulse 2s infinite; }
+        .node.warning { background: #f59e0b; box-shadow: 0 0 15px #f59e0b; }
+        
+        .pathway {
+            position: absolute;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(59,130,246,0.6), transparent);
+            transform-origin: left center;
+            opacity: 0.3;
+            transition: opacity 0.3s ease;
+        }
+        .pathway.active { opacity: 0.8; }
+        .pathway.strong { background: linear-gradient(90deg, transparent, rgba(59,130,246,0.9), transparent); }
+        
+        .controls-panel {
+            background: rgba(13,16,21,0.95);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .metric-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 12px;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(13,16,21,0.95);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: #f8fafc;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            display: none;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .coherence-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: radial-gradient(circle, #10b981, #047857);
+            animation: coherence-pulse 3s ease-in-out infinite;
+        }
+        
+        @keyframes coherence-pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 10px rgba(16,185,129,0.3); }
+            50% { transform: scale(1.1); box-shadow: 0 0 20px rgba(16,185,129,0.6); }
+        }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen text-white p-6">
+        <div class="max-w-7xl mx-auto">
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <h1 class="text-4xl font-bold mb-4 flex items-center justify-center">
+                    <i class="fas fa-brain text-purple-400 text-5xl mr-4"></i>
+                    Timeline & Network Consciousness
+                </h1>
+                <p class="text-slate-300 text-lg">Real-time visualization of cortex pathways and neural network activity</p>
+            </div>
+
+            <div class="grid lg:grid-cols-4 gap-6">
+                <!-- Network Visualization -->
+                <div class="lg:col-span-3">
+                    <div class="controls-panel p-6 mb-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center space-x-3">
+                                <div class="coherence-indicator"></div>
+                                <div>
+                                    <h2 class="text-xl font-bold">Network Consciousness</h2>
+                                    <p class="text-sm text-slate-400">Real-time neural pathway monitoring</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-4 text-sm">
+                                <div class="metric-card">
+                                    <div class="text-2xl font-bold text-blue-400" id="totalNodes">12</div>
+                                    <div class="text-slate-400">Active Nodes</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="text-2xl font-bold text-green-400" id="activeConnections">24</div>
+                                    <div class="text-slate-400">Pathways</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="text-2xl font-bold text-purple-400" id="coherence">0.87</div>
+                                    <div class="text-slate-400">Coherence</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Network Controls -->
+                        <div class="flex items-center space-x-4 text-sm">
+                            <button id="zoomInBtn" class="flex items-center space-x-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
+                                <i class="fas fa-search-plus"></i>
+                                <span>Zoom In</span>
+                            </button>
+                            <button id="zoomOutBtn" class="flex items-center space-x-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
+                                <i class="fas fa-search-minus"></i>
+                                <span>Zoom Out</span>
+                            </button>
+                            <button id="rotateBtn" class="flex items-center space-x-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors">
+                                <i class="fas fa-sync-alt"></i>
+                                <span>Auto Rotate</span>
+                            </button>
+                            <button id="resetBtn" class="flex items-center space-x-2 px-3 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors">
+                                <i class="fas fa-home"></i>
+                                <span>Reset View</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Network Canvas -->
+                    <div class="network-container" id="networkCanvas">
+                        <!-- Nodes and pathways will be rendered here -->
+                    </div>
+
+                    <!-- Legend -->
+                    <div class="controls-panel p-4 mt-4">
+                        <div class="flex items-center justify-center space-x-8 text-sm">
+                            <div class="flex items-center space-x-2">
+                                <div class="w-4 h-4 rounded-full bg-purple-400"></div>
+                                <span class="text-slate-300">Cloud Nodes</span>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <div class="w-4 h-4 rounded-full bg-cyan-400"></div>
+                                <span class="text-slate-300">Local Nodes</span>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <div class="w-4 h-4 rounded-full bg-blue-400"></div>
+                                <span class="text-slate-300">System Nodes</span>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <div class="w-8 h-0.5 bg-blue-400"></div>
+                                <span class="text-slate-300">Neural Pathways</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Side Panel -->
+                <div class="space-y-6">
+                    <!-- Node Inspector -->
+                    <div class="controls-panel p-4">
+                        <h3 class="text-lg font-bold mb-3 flex items-center">
+                            <i class="fas fa-info-circle text-blue-400 mr-2"></i>
+                            Node Inspector
+                        </h3>
+                        <div id="nodeInspector" class="space-y-3">
+                            <p class="text-slate-400 text-sm">Select a node to view details</p>
+                        </div>
+                    </div>
+
+                    <!-- Timeline Events -->
+                    <div class="controls-panel p-4">
+                        <h3 class="text-lg font-bold mb-3 flex items-center">
+                            <i class="fas fa-clock text-green-400 mr-2"></i>
+                            Timeline Events
+                        </h3>
+                        <div id="timelineEvents" class="space-y-2 max-h-64 overflow-y-auto">
+                            <!-- Timeline events will be populated here -->
+                        </div>
+                    </div>
+
+                    <!-- System Metrics -->
+                    <div class="controls-panel p-4">
+                        <h3 class="text-lg font-bold mb-3 flex items-center">
+                            <i class="fas fa-chart-line text-purple-400 mr-2"></i>
+                            System Metrics
+                        </h3>
+                        <div class="space-y-3">
+                            <div>
+                                <div class="flex justify-between text-sm mb-1">
+                                    <span class="text-slate-400">Network Load</span>
+                                    <span id="networkLoad" class="text-white">67%</span>
+                                </div>
+                                <div class="w-full bg-slate-700 rounded-full h-2">
+                                    <div id="networkLoadBar" class="bg-blue-500 h-2 rounded-full" style="width: 67%"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-sm mb-1">
+                                    <span class="text-slate-400">Response Time</span>
+                                    <span id="responseTime" class="text-white">142ms</span>
+                                </div>
+                                <div class="w-full bg-slate-700 rounded-full h-2">
+                                    <div id="responseTimeBar" class="bg-green-500 h-2 rounded-full" style="width: 85%"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-sm mb-1">
+                                    <span class="text-slate-400">Error Rate</span>
+                                    <span id="errorRate" class="text-white">0.02%</span>
+                                </div>
+                                <div class="w-full bg-slate-700 rounded-full h-2">
+                                    <div id="errorRateBar" class="bg-yellow-500 h-2 rounded-full" style="width: 2%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tooltip -->
+    <div id="tooltip" class="tooltip"></div>
+
+    <script>
+        // Global state
+        let networkData = {"nodes":[{"id":"Planner","type":"cloud","status":"active","load":80.99517652474562,"connections":6,"metrics":{"latency":164.31998482498727,"throughput":1419.2782148249962,"errorRate":0.03174927422197032}},{"id":"Retriever","type":"local","status":"active","load":38.04914070298688,"connections":5,"metrics":{"latency":124.70817524587541,"throughput":596.5467106423022,"errorRate":0.07839464618146108}},{"id":"RAG","type":"system","status":"warning","load":69.27264488802795,"connections":3,"metrics":{"latency":150.71876183661556,"throughput":1161.150465900982,"errorRate":0.09062438971980336}},{"id":"Tools","type":"cloud","status":"active","load":56.639661627918045,"connections":4,"metrics":{"latency":65.13137908475758,"throughput":1348.1204808458822,"errorRate":0.08760999636876919}},{"id":"Guard","type":"local","status":"active","load":47.76958997637628,"connections":4,"metrics":{"latency":118.27970152508622,"throughput":961.1076474297078,"errorRate":0.09765423352664514}},{"id":"Memory","type":"system","status":"active","load":87.17113278587081,"connections":2,"metrics":{"latency":98.02243200410908,"throughput":1056.9593426342508,"errorRate":0.05162952206022389}},{"id":"Embeddings","type":"cloud","status":"warning","load":87.09969026214239,"connections":2,"metrics":{"latency":107.00057972404466,"throughput":1326.9241550656793,"errorRate":0.051698066252751355}},{"id":"Classifier","type":"local","status":"warning","load":80.38243865303099,"connections":6,"metrics":{"latency":190.5995263888906,"throughput":797.660357716935,"errorRate":0.04631134910927975}},{"id":"Router","type":"system","status":"active","load":57.73839662297482,"connections":5,"metrics":{"latency":154.47844652692382,"throughput":1352.8822515905426,"errorRate":0.09568547807161992}},{"id":"TTS","type":"cloud","status":"active","load":77.4296708835139,"connections":3,"metrics":{"latency":169.6287876485947,"throughput":689.0046526023916,"errorRate":0.08106006863504232}},{"id":"ASR","type":"local","status":"active","load":21.892533410912485,"connections":2,"metrics":{"latency":233.30518675616722,"throughput":1116.351334001126,"errorRate":0.007864334215963687}},{"id":"Summarizer","type":"system","status":"active","load":14.862575744527184,"connections":5,"metrics":{"latency":125.6970060008578,"throughput":912.2974590614501,"errorRate":0.036358372330847}}],"pathways":[{"source":"Planner","target":"Memory","strength":0.3274748147083264,"active":false},{"source":"Planner","target":"Embeddings","strength":0.9164630321786047,"active":true},{"source":"Retriever","target":"Guard","strength":0.1843900596513215,"active":false},{"source":"RAG","target":"Memory","strength":0.6551814599333066,"active":true},{"source":"Tools","target":"Embeddings","strength":0.8078392951770819,"active":false},{"source":"Tools","target":"Router","strength":0.7541801218570869,"active":true},{"source":"Tools","target":"TTS","strength":0.25428281208014414,"active":false},{"source":"Tools","target":"ASR","strength":0.156663997292126,"active":true},{"source":"Tools","target":"Summarizer","strength":0.8584085154656391,"active":true},{"source":"Guard","target":"Memory","strength":0.8682884373592026,"active":false},{"source":"Guard","target":"Embeddings","strength":0.5411206793543271,"active":false},{"source":"Guard","target":"Classifier","strength":0.14243386288906512,"active":true},{"source":"Guard","target":"Router","strength":0.726029234562171,"active":true},{"source":"Memory","target":"TTS","strength":0.13866119427615065,"active":true},{"source":"Embeddings","target":"Router","strength":0.6949602889911093,"active":true},{"source":"Embeddings","target":"ASR","strength":0.009893329644318216,"active":false},{"source":"Classifier","target":"Router","strength":0.5530268924651165,"active":true},{"source":"Classifier","target":"TTS","strength":0.9867023056235578,"active":false},{"source":"Router","target":"ASR","strength":0.002245541986954702,"active":true}]};
+        let selectedNode = null;
+        let autoRotate = false;
+        let zoomLevel = 1;
+
+        // DOM elements
+        const canvas = document.getElementById('networkCanvas');
+        const tooltip = document.getElementById('tooltip');
+
+        // Initialize the network visualization
+        function initNetwork() {
+            renderNetwork();
+            startDataSimulation();
+            generateTimelineEvents();
+        }
+
+        function renderNetwork() {
+            canvas.innerHTML = '';
+            
+            // Calculate node positions in a circular layout
+            const centerX = canvas.offsetWidth / 2;
+            const centerY = canvas.offsetHeight / 2;
+            const radius = Math.min(centerX, centerY) * 0.7;
+
+            networkData.nodes.forEach((node, index) => {
+                const angle = (index / networkData.nodes.length) * 2 * Math.PI;
+                const x = centerX + Math.cos(angle) * radius;
+                const y = centerY + Math.sin(angle) * radius;
+                
+                node.x = x;
+                node.y = y;
+
+                // Create node element
+                const nodeEl = document.createElement('div');
+                nodeEl.className = `node ${node.type} ${node.status}`;
+                nodeEl.style.left = (x - 6) + 'px';
+                nodeEl.style.top = (y - 6) + 'px';
+                
+                nodeEl.onmouseenter = (e) => showTooltip(e, node);
+                nodeEl.onmouseleave = hideTooltip;
+                nodeEl.onclick = () => selectNode(node);
+                
+                canvas.appendChild(nodeEl);
+            });
+
+            // Render pathways
+            networkData.pathways.forEach(pathway => {
+                const sourceNode = networkData.nodes.find(n => n.id === pathway.source);
+                const targetNode = networkData.nodes.find(n => n.id === pathway.target);
+                
+                if (sourceNode && targetNode) {
+                    const pathwayEl = document.createElement('div');
+                    pathwayEl.className = `pathway ${pathway.active ? 'active' : ''} ${pathway.strength > 0.7 ? 'strong' : ''}`;
+                    
+                    const length = Math.sqrt(
+                        Math.pow(targetNode.x - sourceNode.x, 2) + 
+                        Math.pow(targetNode.y - sourceNode.y, 2)
+                    );
+                    const angle = Math.atan2(
+                        targetNode.y - sourceNode.y, 
+                        targetNode.x - sourceNode.x
+                    ) * 180 / Math.PI;
+                    
+                    pathwayEl.style.left = sourceNode.x + 'px';
+                    pathwayEl.style.top = sourceNode.y + 'px';
+                    pathwayEl.style.width = length + 'px';
+                    pathwayEl.style.transform = `rotate(${angle}deg)`;
+                    
+                    canvas.appendChild(pathwayEl);
+                }
+            });
+        }
+
+        function showTooltip(event, node) {
+            tooltip.innerHTML = `
+                <strong style="color: #4fc3f7">${node.id}</strong>
+                <div style="margin-top: 4px; font-size: 11px;">
+                    <div>Type: ${node.type.toUpperCase()}</div>
+                    <div>Status: ${node.status.toUpperCase()}</div>
+                    <div>Load: ${node.load.toFixed(1)}%</div>
+                    <div>Latency: ${node.metrics.latency.toFixed(0)}ms</div>
+                </div>
+            `;
+            
+            tooltip.style.display = 'block';
+            tooltip.style.left = event.pageX + 10 + 'px';
+            tooltip.style.top = event.pageY - 10 + 'px';
+        }
+
+        function hideTooltip() {
+            tooltip.style.display = 'none';
+        }
+
+        function selectNode(node) {
+            selectedNode = node;
+            renderNodeInspector();
+            
+            // Visual feedback
+            const nodeEl = event.target;
+            nodeEl.style.transform = 'scale(1.5)';
+            setTimeout(() => {
+                nodeEl.style.transform = 'scale(1)';
+            }, 200);
+        }
+
+        function renderNodeInspector() {
+            const inspector = document.getElementById('nodeInspector');
+            
+            if (!selectedNode) {
+                inspector.innerHTML = '<p class="text-slate-400 text-sm">Select a node to view details</p>';
+                return;
+            }
+
+            inspector.innerHTML = `
+                <div class="space-y-3">
+                    <div>
+                        <div class="text-sm font-semibold text-white">${selectedNode.id}</div>
+                        <div class="text-xs text-slate-400 capitalize">${selectedNode.type} Node</div>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="flex justify-between text-sm">
+                            <span class="text-slate-400">Status:</span>
+                            <span class="text-white capitalize ${selectedNode.status === 'warning' ? 'text-yellow-400' : 'text-green-400'}">${selectedNode.status}</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-slate-400">Load:</span>
+                            <span class="text-white">${selectedNode.load.toFixed(1)}%</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-slate-400">Latency:</span>
+                            <span class="text-white">${selectedNode.metrics.latency.toFixed(0)}ms</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-slate-400">Throughput:</span>
+                            <span class="text-white">${selectedNode.metrics.throughput.toFixed(0)} req/s</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-slate-400">Error Rate:</span>
+                            <span class="text-white">${(selectedNode.metrics.errorRate * 100).toFixed(2)}%</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span class="text-slate-400">Connections:</span>
+                            <span class="text-white">${selectedNode.connections}</span>
+                        </div>
+                    </div>
+                    <button class="w-full mt-3 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm transition-colors">
+                        <i class="fas fa-search mr-1"></i>
+                        Focus Node
+                    </button>
+                </div>
+            `;
+        }
+
+        function generateTimelineEvents() {
+            const events = [
+                { time: '14:32:15', type: 'connection', message: 'Planner connected to RAG subsystem', icon: 'link' },
+                { time: '14:32:12', type: 'alert', message: 'High latency detected in Memory module', icon: 'exclamation' },
+                { time: '14:32:08', type: 'system', message: 'Neural pathway optimization completed', icon: 'cog' },
+                { time: '14:32:05', type: 'data', message: '500 new embeddings processed', icon: 'database' },
+                { time: '14:32:01', type: 'security', message: 'Guard module blocked suspicious request', icon: 'shield' },
+                { time: '14:31:58', type: 'learning', message: 'Adaptive threshold updated for Classifier', icon: 'graduation-cap' }
+            ];
+
+            const timelineContainer = document.getElementById('timelineEvents');
+            timelineContainer.innerHTML = events.map(event => `
+                <div class="flex items-start space-x-3 p-2 rounded hover:bg-slate-700/30 transition-colors">
+                    <div class="text-xs text-slate-400 mt-1 w-16">${event.time}</div>
+                    <i class="fas fa-${event.icon} text-${
+                        event.type === 'alert' ? 'red' : 
+                        event.type === 'security' ? 'yellow' : 
+                        event.type === 'learning' ? 'purple' : 'blue'
+                    }-400 mt-0.5"></i>
+                    <div class="flex-1">
+                        <div class="text-sm text-white">${event.message}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function startDataSimulation() {
+            setInterval(() => {
+                // Update node metrics
+                networkData.nodes.forEach(node => {
+                    node.load = Math.max(0, Math.min(100, node.load + (Math.random() - 0.5) * 10));
+                    node.metrics.latency = Math.max(20, node.metrics.latency + (Math.random() - 0.5) * 50);
+                    node.metrics.errorRate = Math.max(0, node.metrics.errorRate + (Math.random() - 0.5) * 0.02);
+                });
+
+                // Update pathway activity
+                networkData.pathways.forEach(pathway => {
+                    if (Math.random() > 0.95) {
+                        pathway.active = !pathway.active;
+                    }
+                });
+
+                // Update coherence calculation
+                const avgLoad = networkData.nodes.reduce((sum, node) => sum + node.load, 0) / networkData.nodes.length;
+                const coherence = Math.max(0, Math.min(1, 1 - (avgLoad / 100)));
+                
+                // Update UI
+                document.getElementById('coherence').textContent = coherence.toFixed(2);
+                document.getElementById('networkLoad').textContent = avgLoad.toFixed(0) + '%';
+                document.getElementById('networkLoadBar').style.width = avgLoad + '%';
+                
+                const avgLatency = networkData.nodes.reduce((sum, node) => sum + node.metrics.latency, 0) / networkData.nodes.length;
+                document.getElementById('responseTime').textContent = avgLatency.toFixed(0) + 'ms';
+                document.getElementById('responseTimeBar').style.width = Math.min(100, (300 - avgLatency) / 3) + '%';
+                
+                const avgError = networkData.nodes.reduce((sum, node) => sum + node.metrics.errorRate, 0) / networkData.nodes.length;
+                document.getElementById('errorRate').textContent = (avgError * 100).toFixed(2) + '%';
+                document.getElementById('errorRateBar').style.width = (avgError * 5000) + '%';
+
+                // Re-render if needed
+                if (selectedNode) {
+                    renderNodeInspector();
+                }
+            }, 2000);
+        }
+
+        // Event listeners
+        document.getElementById('zoomInBtn').onclick = () => {
+            zoomLevel = Math.min(2, zoomLevel + 0.2);
+            canvas.style.transform = `scale(${zoomLevel})`;
+        };
+
+        document.getElementById('zoomOutBtn').onclick = () => {
+            zoomLevel = Math.max(0.5, zoomLevel - 0.2);
+            canvas.style.transform = `scale(${zoomLevel})`;
+        };
+
+        document.getElementById('rotateBtn').onclick = () => {
+            autoRotate = !autoRotate;
+            const btn = document.getElementById('rotateBtn');
+            btn.className = autoRotate ? 
+                'flex items-center space-x-2 px-3 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors' :
+                'flex items-center space-x-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors';
+        };
+
+        document.getElementById('resetBtn').onclick = () => {
+            zoomLevel = 1;
+            canvas.style.transform = 'scale(1)';
+            selectedNode = null;
+            renderNodeInspector();
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initNetwork();
+            
+            // Simulate auto-rotation
+            setInterval(() => {
+                if (autoRotate) {
+                    canvas.style.transform = `scale(${zoomLevel}) rotate(${Date.now() / 1000}deg)`;
+                }
+            }, 50);
+        });
+    </script>
+</body>
+</html>

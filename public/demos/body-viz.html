@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>EVE-OS Medical Body Visualization</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+
+  #panel {
+    position: absolute;
+    top: 60px; left: 15px;
+    background: rgba(0,0,0,0.75);
+    padding: 8px;
+    border-radius: 8px;
+    color: #fff;
+    width: 160px;
+    backdrop-filter: blur(6px);
+    font-size: 12px;
+    z-index: 10;
+  }
+
+  /* helper message that shows when GLB assets are not configured */
+  #demo-help {
+    position: absolute;
+    right: 18px;
+    top: 12px;
+    background: rgba(255,255,255,0.06);
+    padding: 8px 12px;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 12px;
+    max-width: 320px;
+    box-shadow: 0 6px 26px rgba(0,0,0,0.45);
+  }
+
+  .section-title {
+    margin: 6px 0 3px;
+    opacity:0.8;
+    font-size:10px;
+    text-transform:uppercase;
+  }
+
+  .layer-btn {
+    padding:4px 8px;
+    margin:3px 0;
+    background:rgba(255,255,255,0.15);
+    border-radius:4px;
+    cursor:pointer;
+    transition:0.2s ease;
+    font-size: 11px;
+  }
+
+  .layer-btn:hover { background:rgba(255,255,255,0.25); }
+  .layer-btn.active { background:rgba(0,180,255,0.9); }
+
+  #header {
+    position:absolute;
+    top:10px; left:50%;
+    transform:translateX(-50%);
+    padding:8px 15px;
+    background:rgba(0,25,0,0.8);
+    border-radius:8px;
+    border:1px solid #00ff99;
+    color:#00ff99;
+    font-size:13px;
+    letter-spacing:1px;
+    text-shadow:0 0 4px #00ff99;
+    z-index: 10;
+  }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.181.2/build/three.module.js",
+    "OrbitControls": "https://cdn.jsdelivr.net/npm/three@0.181.2/examples/jsm/controls/OrbitControls.js",
+    "GLTFLoader": "https://cdn.jsdelivr.net/npm/three@0.181.2/examples/jsm/loaders/GLTFLoader.js"
+  }
+}
+</script>
+</head>
+<body>
+
+<div id="header">
+  HR: 72 bpm &nbsp;|&nbsp; O₂: 98% &nbsp;|&nbsp; TEMP: 98.6°F &nbsp;|&nbsp; BP: 118/76
+</div>
+
+<div id="panel"></div>
+  
+  <!-- User-visible message area for missing model assets -->
+  <div id="demo-help">
+    <strong>Body-Vis</strong> — Loading placeholder geometry. Place .glb files in <code>public/demos/models/</code> and update <code>GLB_PATHS</code> in this file to preview real models.
+  </div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'OrbitControls';
+import { GLTFLoader } from 'GLTFLoader';
+
+// ------------------------------------------------------------
+// GLB PATHS — placeholder for real URLs
+// ------------------------------------------------------------
+// By default we point L0 at a small, public sample GLB so the demo shows a model
+// without requiring you to add local assets. The sample comes from the Khronos
+// glTF sample models (served via jsDelivr).
+const GLB_PATHS = {
+  L0:  "https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Models@master/2.0/Box/glTF-Binary/Box.glb",   // Outline / sample model
+  L1:  "",   // Skeleton
+  L2:  "",   // Muscles
+  L3:  "",   // Circulatory
+  L4:  "",   // Nervous
+  L5:  "",   // Respiratory
+  L6:  "",   // Digestive
+  L7:  "",   // Immune
+  L8:  "",   // Cellular
+  L9:  "",   // DNA/Molecule
+  L10: ""    // Atomic
+};
+
+// Helpful runtime check: if no GLB URLs are configured, show the demo-help overlay
+// and log a friendly message so users know placeholders are being used.
+const hasModels = Object.values(GLB_PATHS).some(v => typeof v === 'string' && v.trim() !== '');
+const demoHelpEl = document.getElementById('demo-help');
+if (!hasModels) {
+  demoHelpEl.style.display = 'block';
+  console.info('body-viz: No GLB files configured in GLB_PATHS — using placeholder geometry. To add models: put .glb files in public/demos/models and update GLB_PATHS.');
+} else {
+  // hide the overlay if we actually have models
+  demoHelpEl.style.display = 'none';
+}
+
+// ------------------------------------------------------------
+// Layer lists
+// ------------------------------------------------------------
+const MACRO_LAYERS = {
+  L0:"Outline",
+  L1:"Skeleton",
+  L2:"Muscles",
+  L3:"Circulatory",
+  L4:"Nervous",
+  L5:"Respiratory",
+  L6:"Digestive",
+  L7:"Immune"
+};
+
+const MICRO_LAYERS = {
+  L8:"Cellular",
+  L9:"Molecule",
+  L10:"Atomic"
+};
+
+let CURRENT_MODE = "MACRO";
+let CURRENT_LAYER = "L0";
+
+const PANEL = document.getElementById("panel");
+
+// ------------------------------------------------------------
+// Build UI panel
+// ------------------------------------------------------------
+function buildPanel(){
+  PANEL.innerHTML="";
+  const macroTitle=document.createElement("div");
+  macroTitle.className="section-title"; macroTitle.textContent="Full Body";
+  PANEL.appendChild(macroTitle);
+
+  for(const [id,label] of Object.entries(MACRO_LAYERS)){
+    const btn=document.createElement("div");
+    btn.className="layer-btn";
+    btn.dataset.layer=id;
+    btn.textContent=id+" – "+label;
+    PANEL.appendChild(btn);
+  }
+
+  const microTitle=document.createElement("div");
+  microTitle.className="section-title"; microTitle.textContent="Micro Layers";
+  PANEL.appendChild(microTitle);
+
+  for(const [id,label] of Object.entries(MICRO_LAYERS)){
+    const btn=document.createElement("div");
+    btn.className="layer-btn";
+    btn.dataset.layer=id;
+    btn.textContent=id+" – "+label;
+    PANEL.appendChild(btn);
+  }
+}
+buildPanel();
+
+// ------------------------------------------------------------
+// THREE.JS SETUP
+// ------------------------------------------------------------
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x020202);
+
+const macroScene = new THREE.Group();
+scene.add(macroScene);
+
+const microScene = new THREE.Group();
+microScene.visible = false;
+scene.add(microScene);
+
+// Micro "medical grid" environment
+{
+  const grid = new THREE.GridHelper(60, 60, 0x00ff99, 0x004422);
+  grid.material.opacity = 0.22;
+  grid.material.transparent = true;
+  microScene.add(grid);
+
+  microScene.fog = new THREE.Fog(0x001100, 2, 60);
+}
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 4000);
+camera.position.set(0,1,7);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+
+// Better lighting
+const hemi = new THREE.HemisphereLight(0x88bbff,0x223344,0.6);
+scene.add(hemi);
+
+const keyLight = new THREE.DirectionalLight(0xffffff,1.1);
+keyLight.position.set(4,8,6);
+keyLight.castShadow=true;
+scene.add(keyLight);
+
+const rim = new THREE.DirectionalLight(0x66ccff,0.6);
+rim.position.set(-6,4,-4);
+scene.add(rim);
+
+// ------------------------------------------------------------
+// Loaders
+// ------------------------------------------------------------
+const loader = new GLTFLoader();
+
+// groups
+const macroGroups = {}, microGroups = {};
+
+// ------------------------------------------------------------
+// Loader wrapper with fallback geometry
+// ------------------------------------------------------------
+function loadGLBOrPlaceholder(id, parentIsMicro = false){
+  const container = new THREE.Group();
+  const url = GLB_PATHS[id];
+
+  const isMacro = !parentIsMicro;
+
+  if(url && url !== ""){
+    loader.load(url,(glb)=>{
+      const model = glb.scene;
+      model.traverse(o=>{
+        if(o.isMesh){
+          o.castShadow=true;
+          o.receiveShadow=true;
+          o.material.depthWrite = true;
+        }
+      });
+      model.scale.set(1,1,1);
+      container.add(model);
+    }, undefined, ()=>{
+      // only fallback on error
+          console.warn(`body-viz: failed to load GLB: ${url} — using placeholder geometry`);
+          fallbackGeo();
+    });
+  } else {
+    fallbackGeo();
+  }
+
+  function fallbackGeo(){
+    let geo, col;
+    if(isMacro){
+      col = 0x66aaff;
+      geo = new THREE.SphereGeometry(1.2,32,32);
+    } else {
+      col = 0x00ff99;
+      geo = new THREE.IcosahedronGeometry(1,1);
+    }
+    const mat = new THREE.MeshStandardMaterial({color:col, roughness:0.35, metalness:0.1});
+    const mesh = new THREE.Mesh(geo,mat);
+    container.add(mesh);
+  }
+
+  return container;
+}
+
+// ------------------------------------------------------------
+// Build macro + micro groups
+// ------------------------------------------------------------
+for(const id in MACRO_LAYERS){
+  const g = loadGLBOrPlaceholder(id, false);
+  g.visible = false;
+  macroScene.add(g);
+  macroGroups[id] = g;
+}
+
+for(const id in MICRO_LAYERS){
+  const g = loadGLBOrPlaceholder(id, true);
+  g.visible = false;
+  microScene.add(g);
+  microGroups[id] = g;
+}
+
+// ------------------------------------------------------------
+// CAM SPLINE
+// ------------------------------------------------------------
+function camToMicro(onDone=()=>{}){
+  const start = camera.position.clone();
+  const end   = new THREE.Vector3(0,0,2);
+  animateVec(start,end,1400,onDone);
+}
+
+function camToMacro(onDone=()=>{}){
+  const start = camera.position.clone();
+  const end   = new THREE.Vector3(0,1,7);
+  animateVec(start,end,1400,onDone);
+}
+
+function animateVec(a,b,duration,cb){
+  const startT = performance.now();
+  function step(){
+    const t = Math.min((performance.now()-startT)/duration,1);
+    camera.position.lerpVectors(a,b,1-Math.cos(t*Math.PI/2));
+    if(t<1) requestAnimationFrame(step);
+    else cb();
+  }
+  step();
+}
+
+// ------------------------------------------------------------
+// MODE SWITCHING
+// ------------------------------------------------------------
+function showLayer(id){
+  CURRENT_LAYER=id;
+
+  // UI
+  document.querySelectorAll(".layer-btn").forEach(btn=>{
+    btn.classList.toggle("active",btn.dataset.layer===id);
+  });
+
+  const isMicro = MICRO_LAYERS[id] !== undefined;
+
+  if(isMicro && CURRENT_MODE==="MACRO"){
+    enterMicro(id);
+  } else if(!isMicro && CURRENT_MODE==="MICRO"){
+    exitMicro(id);
+  } else {
+    normalSwitch(id);
+  }
+}
+
+function normalSwitch(id){
+  if(CURRENT_MODE==="MACRO"){
+    for(const k in macroGroups) macroGroups[k].visible = (k===id);
+  } else {
+    for(const k in microGroups) microGroups[k].visible = (k===id);
+  }
+}
+
+function enterMicro(id){
+  CURRENT_MODE="MICRO";
+
+  camToMicro(()=>{});
+
+  macroScene.visible=false;
+  microScene.visible=true;
+
+  for(const k in microGroups) microGroups[k].visible = (k===id);
+}
+
+function exitMicro(id){
+  CURRENT_MODE="MACRO";
+
+  camToMacro(()=>{});
+
+  microScene.visible=false;
+  macroScene.visible=true;
+
+  for(const k in macroGroups) macroGroups[k].visible = (k===id);
+}
+
+// ------------------------------------------------------------
+// Hook up UI
+// ------------------------------------------------------------
+document.querySelectorAll(".layer-btn").forEach(btn=>{
+  btn.addEventListener("click",()=>showLayer(btn.dataset.layer));
+});
+
+// Start
+showLayer("L0");
+
+// ------------------------------------------------------------
+// Animate micro drift (pretty vibes)
+// ------------------------------------------------------------
+function animate(){
+  requestAnimationFrame(animate);
+
+  // subtle microlayer motion
+  if(CURRENT_MODE==="MICRO"){
+    for(const g of Object.values(microGroups)){
+      g.rotation.y += 0.0015;
+    }
+  }
+
+  renderer.render(scene,camera);
+}
+animate();
+
+// Resize
+window.addEventListener("resize",()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

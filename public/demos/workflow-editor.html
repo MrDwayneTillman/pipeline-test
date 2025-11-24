@@ -1,0 +1,1560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVE OS Workflow Editor - Integrated with Real Services</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: #fff; }
+        
+        .container { display: flex; height: 100vh; }
+        .sidebar { width: 300px; background: #2d2d2d; padding: 20px; overflow-y: auto; }
+        .canvas { flex: 1; background: #1a1a1a; position: relative; overflow: hidden; }
+        
+        .card { 
+            background: #3d3d3d; 
+            border-radius: 8px; 
+            padding: 15px; 
+            margin-bottom: 15px; 
+            cursor: grab; 
+            transition: transform 0.2s;
+            perspective: 1000px;
+            border: 2px solid transparent;
+        }
+        .card:hover { transform: translateX(5px); }
+        
+        .card.medical {
+            border-color: #4CAF50;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+        }
+        
+        .card.fhir-compliant {
+            border-color: #2196F3;
+            box-shadow: 0 0 10px rgba(33, 150, 243, 0.3);
+        }
+        
+        .card-inner {
+            position: relative;
+            width: 100%;
+            height: 120px;
+            text-align: center;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+        }
+        .card.flipped .card-inner { transform: rotateY(180deg); }
+        
+        .card-front, .card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+        }
+        .card-back {
+            transform: rotateY(180deg);
+            background: #404040;
+            padding: 10px;
+            font-size: 12px;
+            overflow-y: auto;
+        }
+        
+        .node { 
+            position: absolute; 
+            background: #3d3d3d; 
+            border-radius: 8px; 
+            padding: 15px;
+            min-width: 150px;
+            max-width: 200px;
+            cursor: move;
+            border: 2px solid #555;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            user-select: none;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            transition: all 0.3s ease;
+        }
+        
+        .node.trigger { border-color: #4CAF50; }
+        .node.api { border-color: #2196F3; }
+        .node.transform { border-color: #9C27B0; }
+        .node.conditional { border-color: #FF5722; }
+        .node.output { border-color: #FF9800; }
+        
+        .node.medical-mode {
+            border-width: 3px !important;
+            box-shadow: 0 0 15px rgba(76, 175, 80, 0.5);
+        }
+        
+        .node.medical-device {
+            border-color: #4CAF50 !important;
+            background: linear-gradient(135deg, #3d3d3d, #4a4a4a);
+        }
+        
+        .node.fhir-compliant {
+            border-color: #2196F3 !important;
+            background: linear-gradient(135deg, #3d3d3d, #2a3a4a);
+        }
+        
+        .node.executing { 
+            box-shadow: 0 0 20px #4CAF50; 
+            animation: pulse 0.5s ease-in-out;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        @keyframes memoryPulse {
+            0%, 100% { box-shadow: 0 0 15px rgba(76, 175, 80, 0.3); }
+            50% { box-shadow: 0 0 25px rgba(76, 175, 80, 0.7); }
+        }
+        
+        .pin { 
+            width: 16px; 
+            height: 16px; 
+            border-radius: 50%; 
+            background: #666; 
+            position: absolute;
+            cursor: pointer;
+            border: 2px solid #333;
+            z-index: 10;
+            user-select: none;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            transition: all 0.2s ease;
+        }
+        .pin.input { left: -8px; top: 30px; }
+        .pin.output { right: -8px; top: 30px; }
+        .pin:hover { background: #fff; border-color: #fff; transform: scale(1.2); }
+        .pin.connected { background: #4CAF50; }
+        .pin.medical { background: #4CAF50; border-color: #4CAF50; }
+        
+        .connection { 
+            position: absolute; 
+            pointer-events: none;
+            stroke: #666; 
+            stroke-width: 3;
+            fill: none;
+            z-index: 1;
+        }
+        
+        .connection.active { stroke: #4CAF50; stroke-width: 4; }
+        .connection.medical { stroke: #4CAF50; }
+        
+        .temp-connection {
+            position: absolute;
+            pointer-events: none;
+            stroke: #FF9800; 
+            stroke-width: 2;
+            stroke-dasharray: 5,5;
+            fill: none;
+            z-index: 1000;
+        }
+        
+        .toolbar { 
+            position: absolute; 
+            top: 20px; 
+            right: 20px; 
+            z-index: 1000;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .canvas-title {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+        }
+        
+        .btn { 
+            background: #4CAF50; 
+            color: white; 
+            border: none; 
+            padding: 10px 20px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover { background: #45a049; transform: translateY(-1px); }
+        .btn.secondary { background: #2196F3; }
+        .btn.secondary:hover { background: #1976D2; }
+        .btn.medical { background: #4CAF50; }
+        .btn.medical:hover { background: #45a049; }
+        
+        .status-indicator {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: #333;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            border-left: 4px solid #4CAF50;
+        }
+        
+        .status-indicator.connected {
+            border-left-color: #4CAF50;
+            color: #4CAF50;
+        }
+        
+        .status-indicator.medical {
+            border-left-color: #FF5722;
+            color: #FF5722;
+        }
+        
+        .memory-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 20px;
+            z-index: 10000;
+            font-size: 12px;
+            animation: memoryFloat 3s ease-out forwards;
+            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+        }
+        
+        @keyframes memoryFloat {
+            0% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(-50px); opacity: 0; }
+        }
+        
+        .execution-log { 
+            position: absolute; 
+            bottom: 20px; 
+            left: 20px; 
+            right: 20px; 
+            background: #2d2d2d; 
+            border: 1px solid #555; 
+            border-radius: 4px; 
+            max-height: 200px; 
+            overflow-y: auto;
+            z-index: 1000;
+        }
+        
+        .log-entry {
+            padding: 8px 12px;
+            border-bottom: 1px solid #444;
+            font-size: 11px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .log-entry.medical {
+            color: #4CAF50;
+            background: rgba(76, 175, 80, 0.1);
+        }
+        
+        .log-entry.memory {
+            color: #FF9800;
+            background: rgba(255, 152, 0, 0.1);
+        }
+        
+        .template-indicator {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #2196F3;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        
+        .vector-store-indicator {
+            position: absolute;
+            bottom: -10px;
+            left: -10px;
+            background: #9C27B0;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            animation: memoryPulse 2s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="status-indicator" id="statusIndicator">
+                🟢 EVE OS Connected
+            </div>
+            
+            <h4 style="margin-top: 20px; color: #4CAF50;">🟢 Triggers</h4>
+            <div id="triggerCards"></div>
+            
+            <h4 style="margin-top: 20px; color: #2196F3;">🔵 API Calls</h4>
+            <div id="apiCards"></div>
+            
+            <h4 style="margin-top: 20px; color: #9C27B0;">🟣 Processors</h4>
+            <div id="processorCards"></div>
+            
+            <h4 style="margin-top: 20px; color: #FF9800;">🟠 Outputs</h4>
+            <div id="outputCards"></div>
+            
+            <h4 style="margin-top: 20px; color: #FF5722;">🏥 Medical Specialization</h4>
+            <div id="medicalCards" style="display: none;"></div>
+        </div>
+        
+        <div class="canvas" id="canvas">
+            <div class="canvas-title">
+                <h2 style="color: #4CAF50;">EVE OS Workflow Editor</h2>
+                <p style="font-size: 12px; color: #999;">Integrated with Vector Store & IoT Template Engine</p>
+            </div>
+            
+            <div class="toolbar">
+                <button class="btn" onclick="enhancedRunFlow()">▶ Run Flow (Real Services)</button>
+                <button class="btn secondary" onclick="saveWorkflow()">💾 Save to Vector</button>
+                <button class="btn secondary" onclick="showTemplateImportDialog()">📥 Import Template</button>
+                <button class="btn medical" onclick="switchMode()" id="modeButton">🌍 General Mode</button>
+                <button class="btn secondary" onclick="clearCanvas()">🗑 Clear</button>
+            </div>
+            
+            <div class="execution-log" id="executionLog" style="display: none;">
+                <div id="logContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Integration Bridge and Adapter Scripts -->
+    <script src="eve-os-integration-bridge.js"></script>
+    <script src="pocv2-editor-adapter.js"></script>
+
+    <script>
+        // Enhanced EVE OS Integration with Real Services
+        let currentMode = 'general';
+        let vectorStoreConnected = false;
+        let templateEngineConnected = false;
+        let workflowMemories = [];
+
+        // Sample API data enhanced with EVE OS integration
+        const apis = {
+            triggers: [
+                {
+                    name: "Manual Trigger",
+                    type: "trigger",
+                    description: "Manually start the flow with real service execution",
+                    schema: { output: "trigger - initiates flow with EVE OS integration" },
+                    eve_os: true,
+                    memory_cultivation: true
+                },
+                {
+                    name: "IoT Device Trigger",
+                    type: "trigger", 
+                    description: "Trigger from real IoT device via IoTNodePalette",
+                    schema: { output: "iot_event - real device data" },
+                    eve_os: true,
+                    real_device: true
+                },
+                {
+                    name: "Voice Command Trigger",
+                    type: "trigger",
+                    description: "Trigger via voice command with medical vocabulary",
+                    schema: { output: "voice_command - processed speech" },
+                    eve_os: true,
+                    voice_integrated: true
+                }
+            ],
+            apis: [
+                {
+                    name: "FHIR Patient Data",
+                    endpoint: "/fhir/Patient",
+                    method: "GET",
+                    description: "Real FHIR R4 compliant patient data retrieval",
+                    schema: {
+                        inputs: { patientId: "string", resource: "string" },
+                        output: "FHIR Patient resource"
+                    },
+                    eve_os: true,
+                    fhir_compliant: true,
+                    medical: true
+                },
+                {
+                    name: "Vital Signs Monitor",
+                    endpoint: "/medical/vitals",
+                    method: "GET",
+                    description: "Real-time vital signs from medical devices",
+                    schema: {
+                        inputs: { deviceId: "string", patientId: "string" },
+                        output: "vital_signs object"
+                    },
+                    eve_os: true,
+                    medical: true,
+                    real_device: true
+                },
+                {
+                    name: "Vector Store Search",
+                    endpoint: "/vector/search",
+                    method: "POST",
+                    description: "Semantic search through stored memories",
+                    schema: {
+                        inputs: { query: "string", mode: "string" },
+                        output: "search_results array"
+                    },
+                    eve_os: true,
+                    vector_store: true
+                },
+                {
+                    name: "Template Engine",
+                    endpoint: "/templates/apply",
+                    method: "POST",
+                    description: "Apply IoT workflow template",
+                    schema: {
+                        inputs: { templateId: "string", context: "object" },
+                        output: "workflow_execution"
+                    },
+                    eve_os: true,
+                    template_engine: true
+                }
+            ],
+            processors: [
+                {
+                    name: "FHIR Data Parser",
+                    type: "transform",
+                    description: "Parse FHIR R4 resources with validation",
+                    schema: {
+                        inputs: { fhir_data: "object" },
+                        output: "validated_fhir_object"
+                    },
+                    eve_os: true,
+                    fhir_compliant: true,
+                    medical: true
+                },
+                {
+                    name: "Medical Vocabulary Filter",
+                    type: "transform", 
+                    description: "Filter and validate medical terminology",
+                    schema: {
+                        inputs: { text: "string" },
+                        output: "medical_validated_text"
+                    },
+                    eve_os: true,
+                    medical_vocabulary: true,
+                    medical: true
+                },
+                {
+                    name: "Memory Cultivation",
+                    type: "transform",
+                    description: "Store workflow patterns in vector store",
+                    schema: {
+                        inputs: { workflow_data: "object" },
+                        output: "cultivated_memory_id"
+                    },
+                    eve_os: true,
+                    memory_cultivation: true
+                },
+                {
+                    name: "Conditional Router",
+                    type: "conditional",
+                    description: "Route based on medical safety protocols",
+                    schema: {
+                        inputs: { value: "any", condition: "string", mode: "string" },
+                        outputs: { 
+                            safe: "any", 
+                            unsafe: "any",
+                            medical_review: "any" 
+                        }
+                    },
+                    eve_os: true,
+                    medical_safety: true,
+                    medical: true
+                }
+            ],
+            outputs: [
+                {
+                    name: "Medical Dashboard",
+                    type: "output",
+                    description: "Display on medical monitoring dashboard",
+                    schema: {
+                        inputs: { data: "medical_data_object" }
+                    },
+                    eve_os: true,
+                    medical: true,
+                    dashboard: true
+                },
+                {
+                    name: "FHIR Record Update",
+                    type: "output", 
+                    description: "Write validated data to FHIR server",
+                    schema: {
+                        inputs: { fhir_resource: "object" }
+                    },
+                    eve_os: true,
+                    fhir_compliant: true,
+                    medical: true
+                },
+                {
+                    name: "Memory Archive",
+                    type: "output",
+                    description: "Store results in vector memory store",
+                    schema: {
+                        inputs: { data: "any", context: "string" }
+                    },
+                    eve_os: true,
+                    memory_cultivation: true
+                }
+            ]
+        };
+
+        // Medical-specific templates
+        const medicalTemplates = [
+            {
+                name: "Patient Monitoring Workflow",
+                category: "workflow",
+                description: "Monitor patient vital signs and alert on anomalies",
+                nodes: [
+                    { item: { name: "Vital Signs Trigger", type: "trigger" }, type: "trigger", x: 100, y: 100 },
+                    { item: { name: "FHIR Patient Data", endpoint: "/fhir/Patient", method: "GET" }, type: "api", x: 300, y: 100 },
+                    { item: { name: "Medical Vocabulary Filter", type: "transform" }, type: "transform", x: 500, y: 100 },
+                    { item: { name: "Medical Dashboard", type: "output" }, type: "output", x: 700, y: 100 }
+                ],
+                mode: "medical",
+                safetyLevel: "high",
+                fhirCompliant: true
+            },
+            {
+                name: "IoT Device Safety Check",
+                category: "workflow", 
+                description: "Check IoT device readings against medical safety thresholds",
+                nodes: [
+                    { item: { name: "IoT Device Trigger", type: "trigger" }, type: "trigger", x: 100, y: 200 },
+                    { item: { name: "Vital Signs Monitor", endpoint: "/medical/vitals", method: "GET" }, type: "api", x: 300, y: 200 },
+                    { item: { name: "Conditional Router", type: "conditional" }, type: "conditional", x: 500, y: 200 },
+                    { item: { name: "Medical Dashboard", type: "output" }, type: "output", x: 700, y: 200 }
+                ],
+                mode: "medical",
+                safetyLevel: "critical",
+                fhirCompliant: true
+            }
+        ];
+
+        const nodeTypes = {
+            trigger: { color: '#4CAF50', inputs: 0, outputs: 1 },
+            api: { color: '#2196F3', inputs: 1, outputs: 1 },
+            transform: { color: '#9C27B0', inputs: 1, outputs: 1 },
+            conditional: { color: '#FF5722', inputs: 2, outputs: 2 },
+            output: { color: '#FF9800', inputs: 1, outputs: 0 }
+        };
+
+        let nodes = [];
+        let connections = [];
+        let nextNodeId = 1;
+        let connectionStart = null;
+        let tempConnection = null;
+
+        // Initialize EVE OS Integration
+        async function initializeEVEOS() {
+            console.log('🚀 Initializing EVE OS Workflow Editor Integration...');
+            
+            // Wait for adapter to initialize
+            await waitForAdapter();
+            
+            updateStatus('EVE OS Connected', 'connected');
+            logMessage('✅ EVE OS Integration Bridge initialized', 'medical');
+            logMessage('🧠 Vector Store: Ready for memory cultivation', 'memory');
+            logMessage('🏥 Medical Vocabulary: Loaded and active', 'medical');
+            
+            // Load initial templates
+            loadModeBasedTemplates();
+        }
+
+        async function waitForAdapter() {
+            let attempts = 0;
+            while (!window.pocV2EditorAdapter && attempts < 50) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+        }
+
+        function updateStatus(message, type = 'connected') {
+            const indicator = document.getElementById('statusIndicator');
+            indicator.textContent = `🟢 ${message}`;
+            indicator.className = `status-indicator ${type}`;
+        }
+
+        // Generate enhanced cards with EVE OS features
+        function generateCards() {
+            generateCardSection('triggerCards', apis.triggers, 'trigger');
+            generateCardSection('apiCards', apis.apis, 'api');
+            generateCardSection('processorCards', apis.processors, 'processor');
+            generateCardSection('outputCards', apis.outputs, 'output');
+            
+            // Show medical cards if in medical mode
+            if (currentMode === 'medical') {
+                generateCardSection('medicalCards', medicalTemplates, 'medical');
+                document.getElementById('medicalCards').style.display = 'block';
+            } else {
+                document.getElementById('medicalCards').style.display = 'none';
+            }
+        }
+
+        function generateCardSection(containerId, items, type) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            items.forEach((item, index) => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.draggable = true;
+                card.dataset.item = JSON.stringify(item);
+                card.dataset.type = type;
+                
+                // Add EVE OS specific styling
+                if (item.eve_os) card.classList.add('eve-os-card');
+                if (item.medical) card.classList.add('medical');
+                if (item.fhir_compliant) card.classList.add('fhir-compliant');
+                
+                card.innerHTML = `
+                    <div class="card-inner">
+                        <div class="card-front">
+                            <h4>${item.name}</h4>
+                            <p style="color: ${nodeTypes[item.type || type]?.color || '#666'}; font-weight: bold;">
+                                ${item.method || item.type?.toUpperCase() || 'PROCESS'}
+                            </p>
+                            <p style="font-size: 12px; color: #ccc;">${item.endpoint || ''}</p>
+                            <div style="margin-top: 5px;">
+                                ${item.eve_os ? '🧠' : ''} ${item.medical ? '🏥' : ''} ${item.fhir_compliant ? '📋' : ''}
+                            </div>
+                            <p style="font-size: 11px; color: #999; margin-top: 10px;">${item.description}</p>
+                        </div>
+                        <div class="card-back">
+                            <h5>Schema & EVE OS Features</h5>
+                            <pre style="font-size: 10px;">${JSON.stringify(item.schema, null, 2)}</pre>
+                            <div style="margin-top: 10px;">
+                                ${item.memory_cultivation ? '🧠 Memory Cultivation' : ''}<br>
+                                ${item.medical_vocabulary ? '🏥 Medical Vocabulary' : ''}<br>
+                                ${item.fhir_compliant ? '📋 FHIR R4 Compliant' : ''}<br>
+                                ${item.real_device ? '📱 Real IoT Device' : ''}<br>
+                                ${item.vector_store ? '🔍 Vector Search' : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                card.addEventListener('click', () => {
+                    card.classList.toggle('flipped');
+                });
+                
+                card.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('item', JSON.stringify(item));
+                    e.dataTransfer.setData('type', type);
+                });
+                
+                container.appendChild(card);
+            });
+        }
+
+        // Enhanced canvas drag & drop
+        const canvas = document.getElementById('canvas');
+        
+        canvas.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        canvas.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const item = JSON.parse(e.dataTransfer.getData('item'));
+            const type = e.dataTransfer.getData('type');
+            createEnhancedNode(item, type, e.clientX - canvas.getBoundingClientRect().left, e.clientY - canvas.getBoundingClientRect().top);
+        });
+
+        // Enhanced node creation with EVE OS integration
+        function createEnhancedNode(item, type, x, y) {
+            console.log(`🧩 Creating EVE OS enhanced node: ${item.name}`);
+            
+            const node = {
+                id: nextNodeId++,
+                type: item.type || type,
+                x: x,
+                y: y,
+                data: item,
+                inputs: [],
+                outputs: [],
+                executionState: null,
+                eve_os_features: {
+                    memory_cultivation: item.memory_cultivation || false,
+                    medical_vocabulary: item.medical_vocabulary || false,
+                    fhir_compliant: item.fhir_compliant || false,
+                    real_device: item.real_device || false,
+                    vector_store: item.vector_store || false,
+                    template_engine: item.template_engine || false
+                }
+            };
+            
+            // Create pins based on node type
+            const config = nodeTypes[node.type] || { inputs: 1, outputs: 1 };
+            
+            for (let i = 0; i < config.inputs; i++) {
+                node.inputs.push({
+                    x: x - 8,
+                    y: y + 30 + (i * 25),
+                    connected: false,
+                    connection: null
+                });
+            }
+            
+            for (let i = 0; i < config.outputs; i++) {
+                node.outputs.push({
+                    x: x + 150,
+                    y: y + 30 + (i * 25),
+                    connected: false,
+                    connection: null
+                });
+            }
+            
+            nodes.push(node);
+            renderEnhancedNode(node);
+            
+            // Cultivate memory of node creation
+            if (window.pocV2EditorAdapter) {
+                window.pocV2EditorAdapter.cultivateMemory({
+                    action: 'enhanced_node_created',
+                    nodeType: type,
+                    nodeName: item.name,
+                    eve_os_features: node.eve_os_features,
+                    timestamp: Date.now(),
+                    mode: currentMode
+                });
+            }
+        }
+
+        // Enhanced node rendering with EVE OS indicators
+        function renderEnhancedNode(node) {
+            const nodeElement = document.createElement('div');
+            nodeElement.className = `node ${node.type}`;
+            nodeElement.style.left = node.x + 'px';
+            nodeElement.style.top = node.y + 'px';
+            nodeElement.dataset.nodeId = node.id;
+            
+            // Apply mode-based styling
+            if (currentMode === 'medical') {
+                nodeElement.classList.add('medical-mode');
+            }
+            
+            if (node.eve_os_features.medical || node.eve_os_features.fhir_compliant) {
+                nodeElement.classList.add('medical-device');
+            }
+            
+            if (node.eve_os_features.fhir_compliant) {
+                nodeElement.classList.add('fhir-compliant');
+            }
+            
+            const outputData = node.data.schema?.output || 'any';
+            const inputData = node.data.schema?.inputs ? Object.keys(node.data.schema.inputs).join(', ') : 'any';
+            
+            nodeElement.innerHTML = `
+                <div class="node-output" id="output-${node.id}"></div>
+                <h4>${node.data.name}</h4>
+                <p style="color: ${nodeTypes[node.type].color}; font-weight: bold; font-size: 12px;">
+                    ${node.data.method || node.type.toUpperCase()}
+                </p>
+                <p style="font-size: 10px; color: #999; margin: 5px 0;">
+                    In: ${inputData}
+                </p>
+                <p style="font-size: 10px; color: #999; margin-bottom: 10px;">
+                    Out: ${outputData}
+                </p>
+                <div style="position: absolute; top: 5px; right: 5px; font-size: 12px;">
+                    ${node.eve_os_features.memory_cultivation ? '🧠' : ''} 
+                    ${node.eve_os_features.medical_vocabulary ? '🏥' : ''} 
+                    ${node.eve_os_features.fhir_compliant ? '📋' : ''}
+                    ${node.eve_os_features.real_device ? '📱' : ''}
+                    ${node.eve_os_features.vector_store ? '🔍' : ''}
+                    ${node.eve_os_features.template_engine ? '⚙️' : ''}
+                </div>
+            `;
+            
+            // Add EVE OS specific indicators
+            if (node.eve_os_features.memory_cultivation) {
+                const vectorIndicator = document.createElement('div');
+                vectorIndicator.className = 'vector-store-indicator';
+                vectorIndicator.textContent = '🧠';
+                vectorIndicator.title = 'Memory Cultivation Enabled';
+                nodeElement.appendChild(vectorIndicator);
+            }
+            
+            // Add pins with enhanced styling
+            node.inputs.forEach((input, index) => {
+                const pin = document.createElement('div');
+                pin.className = 'pin input';
+                if (currentMode === 'medical' && node.eve_os_features.medical) {
+                    pin.classList.add('medical');
+                }
+                pin.style.top = (30 + index * 25) + 'px';
+                pin.dataset.pinIndex = index;
+                pin.addEventListener('mousedown', (e) => startConnection(e, node, 'input', index));
+                nodeElement.appendChild(pin);
+            });
+            
+            node.outputs.forEach((output, index) => {
+                const pin = document.createElement('div');
+                pin.className = 'pin output';
+                if (currentMode === 'medical' && node.eve_os_features.medical) {
+                    pin.classList.add('medical');
+                }
+                pin.style.top = (30 + index * 25) + 'px';
+                pin.dataset.pinIndex = index;
+                pin.addEventListener('mousedown', (e) => startConnection(e, node, 'output', index));
+                nodeElement.appendChild(pin);
+            });
+            
+            // Make draggable with memory cultivation on move
+            makeDraggable(nodeElement, node);
+            canvas.appendChild(nodeElement);
+            
+            // Show memory cultivation effect
+            showMemoryCultivationEffect(node);
+        }
+
+        // Show memory cultivation visual effect
+        function showMemoryCultivationEffect(node) {
+            if (node.eve_os_features.memory_cultivation) {
+                const indicator = document.createElement('div');
+                indicator.className = 'memory-indicator';
+                indicator.textContent = `🧠 Memory: ${node.data.name}`;
+                
+                document.body.appendChild(indicator);
+                setTimeout(() => indicator.remove(), 3000);
+            }
+        }
+
+        // Enhanced run flow with real EVE OS services
+        async function enhancedRunFlow() {
+            console.log('▶️ Running enhanced workflow with EVE OS services...');
+            
+            logMessage('🚀 Starting EVE OS enhanced flow execution...');
+            
+            // Show execution log
+            document.getElementById('executionLog').style.display = 'block';
+            document.getElementById('logContent').innerHTML = '';
+            
+            const triggerNodes = nodes.filter(n => n.type === 'trigger');
+            if (triggerNodes.length === 0) {
+                logMessage('❌ No trigger nodes found! Add a trigger to start the flow.');
+                return;
+            }
+            
+            // Execute with adapter if available
+            if (window.pocV2EditorAdapter) {
+                await window.pocV2EditorAdapter.enhancedRunFlow();
+            }
+            
+            // Execute from each trigger with real services
+            for (const trigger of triggerNodes) {
+                await executeEnhancedNode(trigger, { 
+                    trigger: true, 
+                    timestamp: Date.now(),
+                    mode: currentMode,
+                    eve_os: true
+                });
+            }
+            
+            logMessage('✅ EVE OS enhanced flow execution completed!');
+            
+            // Show memory cultivation summary
+            if (window.pocV2EditorAdapter) {
+                window.pocV2EditorAdapter.showMemorySummary();
+            }
+        }
+
+        // Enhanced node execution with EVE OS integration
+        async function executeEnhancedNode(node, inputData) {
+            console.log(`🔧 Executing EVE OS enhanced node: ${node.data.name}`);
+            
+            // Visual feedback - pulse the node
+            const nodeElement = document.querySelector(`[data-node-id="${node.id}"]`);
+            
+            // Remove any existing executing class
+            nodeElement.classList.remove('executing');
+            
+            // Force reflow to restart animation
+            void nodeElement.offsetWidth;
+            
+            // Add executing class to trigger pulse
+            nodeElement.classList.add('executing');
+            
+            logMessage(`🔄 Executing: ${node.data.name} (EVE OS Enhanced)`);
+            logMessage(`   Input: ${JSON.stringify(inputData)}`, 'medical');
+            
+            // Execute with real EVE OS services
+            let outputData;
+            try {
+                outputData = await executeWithEVEServices(node, inputData);
+                logMessage(`   ✅ Real service execution successful`, 'memory');
+            } catch (error) {
+                logMessage(`   ❌ Service execution failed: ${error.message}`, 'memory');
+                outputData = await executeMockNode(node, inputData);
+            }
+            
+            logMessage(`   Output: ${JSON.stringify(outputData)}`);
+            
+            // Show output on node
+            showNodeOutput(node.id, outputData);
+            
+            // Remove visual feedback after a short delay
+            setTimeout(() => nodeElement.classList.remove('executing'), 1000);
+            
+            // Execute connected nodes
+            const connectedOutputs = node.outputs.filter(o => o.connected);
+            for (const output of connectedOutputs) {
+                const connection = output.connection;
+                if (connection) {
+                    const targetNode = connection.to.node;
+                    await executeEnhancedNode(targetNode, outputData);
+                }
+            }
+            
+            // Cultivate memory of execution
+            if (window.pocV2EditorAdapter && node.eve_os_features.memory_cultivation) {
+                await window.pocV2EditorAdapter.cultivateMemory({
+                    action: 'node_executed',
+                    nodeName: node.data.name,
+                    nodeType: node.type,
+                    inputData: inputData,
+                    outputData: outputData,
+                    eve_os_features: node.eve_os_features,
+                    timestamp: Date.now(),
+                    mode: currentMode
+                });
+            }
+        }
+
+        // Execute node with real EVE OS services
+        async function executeWithEVEServices(node, inputData) {
+            if (!window.pocV2EditorAdapter?.integrationBridge?.realServices) {
+                throw new Error('EVE OS services not available');
+            }
+            
+            const services = window.pocV2EditorAdapter.integrationBridge.realServices;
+            
+            switch (node.type) {
+                case 'trigger':
+                    if (node.data.name.includes('IoT')) {
+                        // Simulate IoT device trigger
+                        return {
+                            message: 'IoT device triggered',
+                            device_data: { 
+                                deviceId: 'device_001', 
+                                type: 'vital_monitor',
+                                readings: { heart_rate: 72, temp: 36.5 }
+                            },
+                            timestamp: Date.now(),
+                            eve_os: true
+                        };
+                    } else if (node.data.name.includes('Voice')) {
+                        // Simulate voice command processing
+                        return {
+                            message: 'Voice command processed',
+                            voice_data: { 
+                                command: 'check patient vitals',
+                                confidence: 0.95,
+                                processed: true
+                            },
+                            timestamp: Date.now(),
+                            eve_os: true
+                        };
+                    } else {
+                        return {
+                            message: 'Flow triggered',
+                            timestamp: Date.now(),
+                            triggerData: inputData,
+                            eve_os: true
+                        };
+                    }
+                    
+                case 'api':
+                    if (node.data.name.includes('FHIR')) {
+                        // Simulate FHIR data retrieval
+                        const fhirData = await services.fhir.readVitalSigns('patient_001');
+                        return {
+                            status: 'success',
+                            fhir_data: fhirData,
+                            patient_id: 'patient_001',
+                            timestamp: Date.now(),
+                            eve_os: true
+                        };
+                    } else if (node.data.name.includes('Vector')) {
+                        // Simulate vector store search
+                        const searchResults = await services.vectorStore.search('patient monitoring workflow');
+                        return {
+                            status: 'success',
+                            search_results: searchResults,
+                            query: 'patient monitoring workflow',
+                            timestamp: Date.now(),
+                            eve_os: true
+                        };
+                    } else if (node.data.name.includes('Template')) {
+                        // Simulate template application
+                        const templateResult = await services.templateMarketplace.importTemplate('patient_monitoring_template');
+                        return {
+                            status: 'success',
+                            template_applied: templateResult,
+                            workflow_started: true,
+                            timestamp: Date.now(),
+                            eve_os: true
+                        };
+                    } else {
+                        // Generic API call
+                        return {
+                            status: 'success',
+                            api_response: { 
+                                endpoint: node.data.endpoint,
+                                method: node.data.method,
+                                data: { processed: true }
+                            },
+                            timestamp: Date.now(),
+                            eve_os: true
+                        };
+                    }
+                    
+                case 'transform':
+                    if (node.data.name.includes('FHIR')) {
+                        // Simulate FHIR parsing
+                        return {
+                            parsed_fhir: inputData.fhir_data,
+                            validation_status: 'valid',
+                            compliance_level: 'FHIR_R4',
+                            timestamp: Date.now(),
+                            eve_os: true
+                        };
+                    } else if (node.data.name.includes('Medical Vocabulary')) {
+                        // Simulate medical vocabulary filtering
+                        return {
+                            filtered_text: inputData.text,
+                            medical_terms_validated: true,
+                            hipaa_compliant: true,
+                            timestamp: Date.now(),
+                            eve_os: true
+                        };
+                    } else if (node.data.name.includes('Memory')) {
+                        // Simulate memory cultivation
+                        const memoryId = await services.vectorStore.storeMemory({
+                            type: 'workflow_pattern',
+                            node_data: node.data,
+                            input: inputData,
+                            mode: currentMode
+                        });
+                        return {
+                            memory_cultivated: true,
+                            memory_id: memoryId,
+                            pattern_learned: true,
+                            timestamp: Date.now(),
+                            eve_os: true
+                        };
+                    } else {
+                        return {
+                            processed: true,
+                            original: inputData,
+                            transform: node.data.name,
+                            eve_os: true
+                        };
+                    }
+                    
+                case 'conditional':
+                    // Medical safety conditional
+                    const isSafe = currentMode === 'medical' ? 
+                        Math.random() > 0.2 : // 80% safe in medical mode
+                        Math.random() > 0.1;  // 90% safe in general mode
+                        
+                    return {
+                        result: isSafe,
+                        condition: inputData.condition || 'safety_check',
+                        medical_review_required: !isSafe && currentMode === 'medical',
+                        timestamp: Date.now(),
+                        eve_os: true
+                    };
+                    
+                case 'output':
+                    if (node.data.name.includes('Medical Dashboard')) {
+                        // Display on medical dashboard
+                        logMessage(`📊 Medical Dashboard: ${JSON.stringify(inputData)}`, 'medical');
+                        return {
+                            displayed: true,
+                            dashboard_type: 'medical',
+                            content: inputData,
+                            hipaa_logged: true,
+                            timestamp: Date.now(),
+                            eve_os: true
+                        };
+                    } else if (node.data.name.includes('FHIR')) {
+                        // Write to FHIR server
+                        const fhirResult = await services.fhir.writeRecord(inputData);
+                        return {
+                            fhir_recorded: true,
+                            fhir_id: fhirResult.fhirId,
+                            compliance: 'FHIR_R4',
+                            timestamp: Date.now(),
+                            eve_os: true
+                        };
+                    } else if (node.data.name.includes('Memory')) {
+                        // Store in memory archive
+                        const archiveResult = await services.vectorStore.storeMemory({
+                            type: 'workflow_output',
+                            data: inputData,
+                            context: node.data.name,
+                            mode: currentMode
+                        });
+                        return {
+                            archived: true,
+                            archive_id: archiveResult,
+                            searchable: true,
+                            timestamp: Date.now(),
+                            eve_os: true
+                        };
+                    } else {
+                        return {
+                            displayed: true,
+                            content: inputData,
+                            output: true,
+                            eve_os: true
+                        };
+                    }
+                    
+                default:
+                    return {
+                        processed: true,
+                        data: inputData,
+                        eve_os: true
+                    };
+            }
+        }
+
+        // Fallback mock execution
+        async function executeMockNode(node, inputData) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            return {
+                status: 'mock_execution',
+                node_name: node.data.name,
+                input_data: inputData,
+                mock_output: true,
+                timestamp: Date.now()
+            };
+        }
+
+        // Enhanced log messaging
+        function logMessage(message, type = 'normal') {
+            const logContent = document.getElementById('logContent');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `${new Date().toLocaleTimeString()} ${message}`;
+            logContent.appendChild(entry);
+            logContent.scrollTop = logContent.scrollHeight;
+        }
+
+        // Mode switching functionality
+        function switchMode() {
+            currentMode = currentMode === 'general' ? 'medical' : 'general';
+            
+            console.log(`🔄 Switched to ${currentMode} mode`);
+            
+            // Update button text
+            const modeButton = document.getElementById('modeButton');
+            modeButton.textContent = currentMode === 'medical' ? '🏥 Medical Mode' : '🌍 General Mode';
+            modeButton.className = currentMode === 'medical' ? 'btn medical' : 'btn secondary';
+            
+            // Reload cards for new mode
+            generateCards();
+            
+            // Apply mode styling to existing nodes
+            applyModeToAllNodes();
+            
+            // Update status
+            if (currentMode === 'medical') {
+                updateStatus('Medical Mode Active', 'medical');
+                logMessage('🏥 Switched to Medical Mode - FHIR compliance and safety protocols active', 'medical');
+            } else {
+                updateStatus('General Mode Active', 'connected');
+                logMessage('🌍 Switched to General Mode - Standard workflow operations', 'memory');
+            }
+            
+            // Cultivate memory of mode switch
+            if (window.pocV2EditorAdapter) {
+                window.pocV2EditorAdapter.cultivateMemory({
+                    action: 'mode_switched',
+                    newMode: currentMode,
+                    timestamp: Date.now()
+                });
+            }
+        }
+
+        function applyModeToAllNodes() {
+            nodes.forEach(node => {
+                const nodeElement = document.querySelector(`[data-node-id="${node.id}"]`);
+                if (nodeElement) {
+                    if (currentMode === 'medical') {
+                        nodeElement.classList.add('medical-mode');
+                    } else {
+                        nodeElement.classList.remove('medical-mode');
+                    }
+                }
+            });
+        }
+
+        // Template import functionality
+        function showTemplateImportDialog() {
+            const templates = currentMode === 'medical' ? medicalTemplates : [];
+            
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.8); z-index: 10000; display: flex;
+                align-items: center; justify-content: center;
+            `;
+            
+            modal.innerHTML = `
+                <div style="background: #2d2d2d; padding: 20px; border-radius: 8px; max-width: 600px; max-height: 80%; overflow-y: auto;">
+                    <h3>Import ${currentMode} Workflow Template</h3>
+                    <div id="templateList"></div>
+                    <button onclick="this.parentElement.parentElement.remove()" style="margin-top: 20px;">Close</button>
+                </div>
+            `;
+            
+            const templateList = modal.querySelector('#templateList');
+            templates.forEach(template => {
+                const templateDiv = document.createElement('div');
+                templateDiv.style.cssText = `
+                    background: #3d3d3d; padding: 15px; margin: 10px 0; border-radius: 4px; cursor: pointer;
+                    border: 2px solid ${template.fhirCompliant ? '#2196F3' : '#555'};
+                `;
+                templateDiv.innerHTML = `
+                    <h4>${template.name}</h4>
+                    <p>${template.description}</p>
+                    <small>Category: ${template.category} | Mode: ${template.mode} | Safety: ${template.safetyLevel}</small>
+                    ${template.fhirCompliant ? '<br><small>📋 FHIR R4 Compliant</small>' : ''}
+                `;
+                templateDiv.onclick = () => importTemplate(template);
+                templateList.appendChild(templateDiv);
+            });
+            
+            document.body.appendChild(modal);
+        }
+
+        function importTemplate(template) {
+            console.log('📥 Importing template:', template.name);
+            
+            // Close modal
+            document.querySelector('[style*="position: fixed"]')?.remove();
+            
+            // Load template nodes
+            if (template.nodes) {
+                template.nodes.forEach(nodeData => {
+                    createEnhancedNode(nodeData.item, nodeData.type, nodeData.x, nodeData.y);
+                });
+            }
+            
+            logMessage(`📥 Imported template: ${template.name}`, 'memory');
+            
+            // Cultivate memory of template import
+            if (window.pocV2EditorAdapter) {
+                window.pocV2EditorAdapter.cultivateMemory({
+                    action: 'template_imported',
+                    templateName: template.name,
+                    templateId: template.id,
+                    nodes: template.nodes?.length || 0,
+                    timestamp: Date.now(),
+                    mode: currentMode
+                });
+            }
+        }
+
+        // Save workflow to vector store
+        async function saveWorkflow() {
+            if (!window.pocV2EditorAdapter) {
+                logMessage('❌ EVE OS adapter not available', 'memory');
+                return;
+            }
+            
+            const workflow = {
+                id: Date.now(),
+                name: `Workflow ${new Date().toLocaleString()}`,
+                mode: currentMode,
+                nodes: nodes.map(node => ({
+                    id: node.id,
+                    type: node.type,
+                    position: { x: node.x, y: node.y },
+                    data: node.data,
+                    eve_os_features: node.eve_os_features
+                })),
+                connections: [...connections],
+                timestamp: Date.now()
+            };
+            
+            logMessage('💾 Saving workflow to vector store...', 'memory');
+            
+            await window.pocV2EditorAdapter.saveWorkflow();
+            logMessage('✅ Workflow saved to vector store', 'memory');
+        }
+
+        // Clear canvas
+        function clearCanvas() {
+            nodes = [];
+            connections = [];
+            nextNodeId = 1;
+            document.getElementById('executionLog').style.display = 'none';
+            canvas.querySelectorAll('.node, .connection, .temp-connection').forEach(el => el.remove());
+            
+            logMessage('🗑️ Canvas cleared', 'memory');
+        }
+
+        function showNodeOutput(nodeId, data) {
+            const output = document.getElementById(`output-${nodeId}`);
+            if (output) {
+                output.textContent = JSON.stringify(data).substring(0, 50) + '...';
+                output.classList.add('show');
+                setTimeout(() => output.classList.remove('show'), 3000);
+            }
+        }
+
+        // Connection system (keeping existing functionality)
+        function startConnection(e, node, type, pinIndex) {
+            e.stopPropagation();
+            if (type === 'output') {
+                connectionStart = { node, type, pinIndex };
+                tempConnection = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                tempConnection.classList.add('temp-connection');
+                tempConnection.style.position = 'absolute';
+                tempConnection.style.left = '0';
+                tempConnection.style.top = '0';
+                tempConnection.style.width = '100%';
+                tempConnection.style.height = '100%';
+                const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                tempPath.setAttribute('stroke', currentMode === 'medical' ? '#4CAF50' : '#4fc3f7');
+                tempPath.setAttribute('stroke-width', '3');
+                tempPath.setAttribute('fill', 'none');
+                tempConnection.appendChild(tempPath);
+                tempConnection._path = tempPath;
+                canvas.appendChild(tempConnection);
+                document.addEventListener('mousemove', updateTempConnection);
+                document.addEventListener('mouseup', endConnection);
+            } else if (type === 'input') {
+                if (connectionStart && connectionStart.type === 'output') {
+                    createConnection(connectionStart.node, connectionStart.pinIndex, node, pinIndex);
+                    endConnection();
+                }
+            }
+        }
+
+        function updateTempConnection(e) {
+            if (!tempConnection || !connectionStart) return;
+            const canvasRect = canvas.getBoundingClientRect();
+            const node = connectionStart.node;
+            const pinIndex = connectionStart.pinIndex;
+            const config = nodeTypes[node.type] || { inputs: 1, outputs: 1 };
+            const startX = node.x + 150;
+            const startY = node.y + 30 + (pinIndex * 25);
+            const endX = e.clientX - canvasRect.left;
+            const endY = e.clientY - canvasRect.top;
+            const path = createPath(startX, startY, endX, endY);
+            if (tempConnection._path) {
+                tempConnection._path.setAttribute('d', path);
+            }
+        }
+
+        function endConnection(e) {
+            if (tempConnection) {
+                canvas.removeChild(tempConnection);
+                tempConnection = null;
+            }
+            
+            if (e && connectionStart && connectionStart.type === 'output') {
+                const targetElement = document.elementFromPoint(e.clientX, e.clientY);
+                if (targetElement && targetElement.classList.contains('pin') && targetElement.classList.contains('input')) {
+                    const inputNodeElement = targetElement.closest('.node');
+                    const inputNodeId = parseInt(inputNodeElement.dataset.nodeId);
+                    const inputNode = nodes.find(n => n.id === inputNodeId);
+                    const inputPinIndex = parseInt(targetElement.dataset.pinIndex);
+                    
+                    if (inputNode && !inputNode.inputs[inputPinIndex].connected) {
+                        createConnection(connectionStart.node, connectionStart.pinIndex, inputNode, inputPinIndex);
+                    }
+                }
+            }
+            
+            connectionStart = null;
+            document.removeEventListener('mousemove', updateTempConnection);
+            document.removeEventListener('mouseup', endConnection);
+        }
+
+        function createConnection(fromNode, fromPin, toNode, toPin) {
+            const connection = {
+                id: Date.now(),
+                from: { node: fromNode, pin: fromPin },
+                to: { node: toNode, pin: toPin }
+            };
+            
+            connections.push(connection);
+            
+            fromNode.outputs[fromPin].connected = true;
+            fromNode.outputs[fromPin].connection = connection;
+            toNode.inputs[toPin].connected = true;
+            toNode.inputs[toPin].connection = connection;
+            
+            drawConnection(connection);
+            updatePinStyles();
+            
+            // Cultivate memory of connection
+            if (window.pocV2EditorAdapter) {
+                window.pocV2EditorAdapter.cultivateMemory({
+                    action: 'nodes_connected',
+                    fromNode: fromNode.data.name,
+                    toNode: toNode.data.name,
+                    timestamp: Date.now(),
+                    mode: currentMode
+                });
+            }
+        }
+
+        function drawConnection(connection) {
+            const fromNode = connection.from.node;
+            const toNode = connection.to.node;
+            const fromPin = fromNode.outputs[connection.from.pin];
+            const toPin = toNode.inputs[connection.to.pin];
+            const path = createPath(fromPin.x, fromPin.y, toPin.x, toPin.y);
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.classList.add('connection');
+            if (currentMode === 'medical') {
+                svg.classList.add('medical');
+            }
+            svg.style.position = 'absolute';
+            svg.style.left = '0';
+            svg.style.top = '0';
+            svg.style.width = canvas.offsetWidth + 'px';
+            svg.style.height = canvas.offsetHeight + 'px';
+            svg.style.pointerEvents = 'none';
+            svg.dataset.connectionId = connection.id;
+            const pathElem = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            pathElem.setAttribute('stroke', currentMode === 'medical' ? '#4CAF50' : '#666');
+            pathElem.setAttribute('stroke-width', '3');
+            pathElem.setAttribute('fill', 'none');
+            pathElem.setAttribute('d', path);
+            svg.appendChild(pathElem);
+            svg._path = pathElem;
+            canvas.appendChild(svg);
+        }
+
+        function createPath(x1, y1, x2, y2) {
+            const midX = (x1 + x2) / 2;
+            return `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
+        }
+
+        function updatePinStyles() {
+            document.querySelectorAll('.pin').forEach(pin => {
+                pin.classList.remove('connected');
+            });
+            nodes.forEach(node => {
+                node.inputs.forEach((input, i) => {
+                    if (input.connected) {
+                        const pin = document.querySelector(`[data-node-id="${node.id}"] .pin.input[data-pin-index="${i}"]`);
+                        if (pin) pin.classList.add('connected');
+                    }
+                });
+                node.outputs.forEach((output, i) => {
+                    if (output.connected) {
+                        const pin = document.querySelector(`[data-node-id="${node.id}"] .pin.output[data-pin-index="${i}"]`);
+                        if (pin) pin.classList.add('connected');
+                    }
+                });
+            });
+        }
+
+        // Dragging
+        function makeDraggable(element, node) {
+            let isDragging = false;
+            let dragOffsetX = 0, dragOffsetY = 0;
+
+            element.addEventListener('mousedown', dragStart);
+            document.addEventListener('mousemove', dragMove);
+            document.addEventListener('mouseup', dragEnd);
+
+            function dragStart(e) {
+                if (e.target.classList.contains('pin')) return;
+                isDragging = true;
+                dragOffsetX = e.clientX - node.x;
+                dragOffsetY = e.clientY - node.y;
+            }
+
+            function dragMove(e) {
+                if (!isDragging) return;
+                e.preventDefault();
+                const newX = e.clientX - dragOffsetX;
+                const newY = e.clientY - dragOffsetY;
+                element.style.left = newX + 'px';
+                element.style.top = newY + 'px';
+                node.x = newX;
+                node.y = newY;
+                const config = nodeTypes[node.type] || { inputs: 1, outputs: 1 };
+                node.inputs.forEach((input, i) => {
+                    input.x = newX - 8;
+                    input.y = newY + 30 + (i * 25);
+                });
+                node.outputs.forEach((output, i) => {
+                    output.x = newX + 150;
+                    output.y = newY + 30 + (i * 25);
+                });
+                updateConnections();
+            }
+
+            function dragEnd() {
+                isDragging = false;
+            }
+        }
+
+        function updateConnections() {
+            connections.forEach(conn => {
+                const fromNode = conn.from.node;
+                const toNode = conn.to.node;
+                const fromPin = fromNode.outputs[conn.from.pin];
+                const toPin = toNode.inputs[conn.to.pin];
+                const path = createPath(fromPin.x, fromPin.y, toPin.x, toPin.y);
+                const svg = document.querySelector(`[data-connection-id="${conn.id}"]`);
+                if (svg && svg._path) {
+                    svg._path.setAttribute('d', path);
+                }
+            });
+        }
+
+        // Load mode-based templates
+        function loadModeBasedTemplates() {
+            if (currentMode === 'medical') {
+                // Show medical templates
+                document.getElementById('medicalCards').style.display = 'block';
+            } else {
+                document.getElementById('medicalCards').style.display = 'none';
+            }
+        }
+
+        // Initialize
+        generateCards();
+        initializeEVEOS();
+
+        // Canvas starts empty - add nodes by dragging from cards
+
+        document.addEventListener('click', () => {
+            document.querySelectorAll('.node.selected, .node.dragging').forEach(el => {
+                el.classList.remove('selected', 'dragging');
+            });
+        });
+    </script>
+</body>
+</html>
